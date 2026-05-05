@@ -1,0 +1,23 @@
+# Runtime data
+cache/
+data/
+images/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+
+# Claude
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
