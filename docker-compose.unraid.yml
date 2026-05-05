@@ -1,0 +1,31 @@
+# Unraid 使用的 docker-compose 文件
+# 通过 Unraid 的 Docker Compose 插件或命令行运行
+#
+# 使用前先构建镜像：
+#   在项目目录下运行：docker compose -f docker-compose.unraid.yml build
+#   或者先 push 到 Docker Hub 后把下方 image 改为远程地址
+
+version: "3.8"
+
+services:
+  comfypicshow:
+    build: .
+    # 如果已推送到 Docker Hub，注释掉 build 行并取消注释下方 image：
+    # image: yourname/comfypicshow:latest
+    container_name: comfypicshow
+    network_mode: bridge
+    ports:
+      - "${PORT:-5000}:5000"
+    environment:
+      - PORT=${PORT:-5000}
+      - IMAGES_DIR=/images
+      - DATA_DIR=/data
+    volumes:
+      # 图片/视频目录
+      - ${IMAGES_DIR:-/mnt/user/media/comfyui-output}:/images
+      # 持久化数据目录（缓存、收藏、备注等）
+      - ${DATA_DIR:-/mnt/user/appdata/comfypicshow}:/data
+    devices:
+      # 显卡直通（Intel QSV / AMD VAAPI）
+      - /dev/dri:/dev/dri
+    restart: unless-stopped

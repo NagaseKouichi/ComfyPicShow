@@ -50,6 +50,41 @@ docker run -d -p 5000:5000 \
   comfypicshow
 ```
 
+### Unraid 部署
+
+**方式一：Docker Compose 插件**
+
+```bash
+# 使用 Unraid 专用的 docker-compose 文件
+IMAGES_DIR=/mnt/user/media/comfyui-output DATA_DIR=/mnt/user/appdata/comfypicshow docker-compose -f docker-compose.unraid.yml up -d
+```
+
+**方式二：Unraid Docker 模板（手动添加容器）**
+
+在 Unraid Docker 页面点击「添加容器」，填写：
+
+| 设置项 | 值 |
+|--------|-----|
+| 名称 | `comfypicshow` |
+| 镜像 | `comfypicshow:latest`（或 Docker Hub 地址） |
+| 网络类型 | `Bridge` |
+| 端口映射 | `5000:5000`（或自定义） |
+
+**环境变量**：添加 `PORT`、`IMAGES_DIR`、`DATA_DIR`（见上方环境变量表）
+
+**路径映射**：
+
+| 容器路径 | 宿主机路径 | 说明 |
+|----------|-----------|------|
+| `/images` | `/mnt/user/media/comfyui-output` | 图片/视频目录 |
+| `/data` | `/mnt/user/appdata/comfypicshow` | 持久化数据 |
+
+**Extra Parameters**（显卡直通）：
+
+```
+--device=/dev/dri:/dev/dri
+```
+
 ### 环境变量
 
 | 变量 | 默认值 | 说明 |
