@@ -1,0 +1,213 @@
+<div class="detail-container"{% if metadata and metadata.parsed %} data-positive="{{ (metadata.parsed.positive or '') | e }}" data-negative="{{ (metadata.parsed.negative or '') | e }}"{% endif %}>
+    <button class="nav-arrow nav-prev" onclick="navModal(-1)" title="上一张 (←)">◂</button>
+    <button class="nav-arrow nav-next" onclick="navModal(1)" title="下一张 (→)">▸</button>
+    <div class="media-col">
+        <div class="image-viewer">
+            {% if is_video %}
+            <div class="video-wrapper">
+                <video id="detail-video" src="/raw/{{ imgpath }}" autoplay muted loop playsinline></video>
+                <div class="video-pause-overlay" id="pause-overlay">▶</div>
+                {% if image.has_audio %}
+                <div class="video-mute-btn">
+                    <button id="btn-mute" class="vid-ctrl-btn" title="取消静音">🔇</button>
+                </div>
+                {% endif %}
+            </div>
+            {% else %}
+            <img src="/raw/{{ imgpath }}" alt="{{ image.filename }}">
+            {% endif %}
+        </div>
+
+        <div class="notes-area" data-path="{{ imgpath }}">
+            <div class="notes-display" onclick="startEditNote(this)" style="display:none"></div>
+            <textarea class="notes-input" placeholder="输入备注..." onblur="saveNote(this)" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();this.blur();}"></textarea>
+        </div>
+    </div>
+
+    <aside class="info-panel">
+        <h2>{% if is_video %}视频信息{% else %}图片信息{% endif %}</h2>
+        <table class="info-table">
+            <tr><td>文件名</td><td>{{ image.filename }}</td></tr>
+            <tr><td>路径</td><td><a href="/raw/{{ imgpath }}" target="_blank" class="file-path-link" title="在新窗口打开原文件">{{ imgpath }}</a></td></tr>
+            <tr><td>分辨率</td><td>{{ image.width }} x {{ image.height }}</td></tr>
+            {% if is_video and image.duration_display %}
+            <tr><td>时长</td><td>{{ image.duration_display }}</td></tr>
+            {% endif %}
+            <tr><td>格式</td><td>{{ image.format }}</td></tr>
+            <tr><td>文件大小</td><td>{{ image.size_display }}</td></tr>
+            <tr><td>修改时间</td><td>{{ image.modified }}</td></tr>
+            <tr><td></td><td>
+                <span class="fav-star" data-path="{{ imgpath }}" onclick="toggleFavorite(this)" title="收藏/取消收藏">☆</span>
+                <span class="list-toggle" data-path="{{ imgpath }}" onclick="toggleListPanel(this)" title="加入列表">📋</span>
+            </td></tr>
+        </table>
+
+        <div class="list-selector" id="list-selector" style="display:none">
+            <div class="list-selector-header">
+                <span>选择列表</span>
+                <span class="list-selector-close" onclick="toggleListPanel()">&times;</span>
+            </div>
+            <div class="list-selector-body" id="list-selector-body">加载中...</div>
+        </div>
+
+        {% if metadata %}
+        <h2>ComfyUI 元数据</h2>
+
+        {% if metadata.parsed %}
+            {% set p = metadata.parsed %}
+
+            {% macro render_prompt_section(label, copy_type, text, tags) %}
+            <div class="metadata-section">
+                <div class="section-header">
+                    <h3>{{ label }}</h3>
+                    <button class="copy-all-btn" onclick="copyPassSection(this, '{{ copy_type }}')" title="复制全部{{ label }}">📋</button>
+                </div>
+                {% if is_video %}
+                <pre class="prompt-text">{{ text }}</pre>
+                {% else %}
+                <div class="tag-list">
+                    {% for tag in tags %}
+                    <span class="prompt-tag">
+                        <a href="/search?q={{ tag | urlencode }}" class="tag-text" target="_blank" title="搜索此提示词">{{ tag }}</a>
+                        <span class="tag-copy" title="复制">📋</span>
+                    </span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+            {% endmacro %}
+
+            {% if p.passes and p.passes|length > 1 %}
+            {# Multi-pass: tab UI #}
+            <div class="pass-tabs">
+                {% for pass in p.passes %}
+                <button class="pass-tab {% if loop.first %}active{% endif %}" data-pass="{{ loop.index0 }}" onclick="switchPass(this)">采样 {{ loop.index }}</button>
+                {% endfor %}
+            </div>
+            {% for pass in p.passes %}
+            <div class="pass-content {% if loop.first %}active{% endif %}" data-pass="{{ loop.index0 }}" data-positive="{{ (pass.positive or '') | e }}" data-negative="{{ (pass.negative or '') | e }}">
+                {% if pass.positive_tags %}
+                {{ render_prompt_section('正向提示词', 'positive', pass.positive, pass.positive_tags) }}
+                {% endif %}
+                {% if pass.negative_tags %}
+                {{ render_prompt_section('反向提示词', 'negative', pass.negative, pass.negative_tags) }}
+                {% endif %}
+                {% if pass.sampler %}
+                <div class="metadata-section">
+                    <h3>采样参数</h3>
+                    <table class="info-table">
+                        {% if pass.sampler.seed is defined %}<tr><td>Seed</td><td>{{ pass.sampler.seed }}</td></tr>{% endif %}
+                        {% if pass.sampler.steps is defined %}<tr><td>Steps</td><td>{{ pass.sampler.steps }}</td></tr>{% endif %}
+                        {% if pass.sampler.cfg is defined %}<tr><td>CFG</td><td>{{ pass.sampler.cfg }}</td></tr>{% endif %}
+                        {% if pass.sampler.sampler_name is defined %}<tr><td>Sampler</td><td>{{ pass.sampler.sampler_name }}</td></tr>{% endif %}
+                        {% if pass.sampler.scheduler is defined %}<tr><td>Scheduler</td><td>{{ pass.sampler.scheduler }}</td></tr>{% endif %}
+                        {% if pass.sampler.denoise is defined %}<tr><td>Denoise</td><td>{{ pass.sampler.denoise }}</td></tr>{% endif %}
+                    </table>
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+
+            {% else %}
+            {# Single pass (or legacy data): direct display #}
+            {% set pass = p.passes[0] if p.passes else p %}
+
+            {% if pass.positive_tags %}
+            <div class="metadata-section">
+                <div class="section-header">
+                    <h3>正向提示词 (Positive)</h3>
+                    <button class="copy-all-btn" onclick="modalCopyAll('positive')" title="复制全部正向提示词">📋</button>
+                </div>
+                {% if is_video %}
+                <pre class="prompt-text">{{ pass.positive }}</pre>
+                {% else %}
+                <div class="tag-list">
+                    {% for tag in pass.positive_tags %}
+                    <span class="prompt-tag">
+                        <a href="/search?q={{ tag | urlencode }}" class="tag-text" target="_blank" title="搜索此提示词">{{ tag }}</a>
+                        <span class="tag-copy" title="复制">📋</span>
+                    </span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+            {% endif %}
+
+            {% if pass.negative_tags %}
+            <div class="metadata-section">
+                <div class="section-header">
+                    <h3>反向提示词 (Negative)</h3>
+                    <button class="copy-all-btn" onclick="modalCopyAll('negative')" title="复制全部反向提示词">📋</button>
+                </div>
+                {% if is_video %}
+                <pre class="prompt-text">{{ pass.negative }}</pre>
+                {% else %}
+                <div class="tag-list">
+                    {% for tag in pass.negative_tags %}
+                    <span class="prompt-tag">
+                        <a href="/search?q={{ tag | urlencode }}" class="tag-text" target="_blank" title="搜索此提示词">{{ tag }}</a>
+                        <span class="tag-copy" title="复制">📋</span>
+                    </span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+            {% endif %}
+
+            {% if pass.sampler %}
+            <div class="metadata-section">
+                <h3>采样参数</h3>
+                <table class="info-table">
+                    {% if pass.sampler.seed is defined %}<tr><td>Seed</td><td>{{ pass.sampler.seed }}</td></tr>{% endif %}
+                    {% if pass.sampler.steps is defined %}<tr><td>Steps</td><td>{{ pass.sampler.steps }}</td></tr>{% endif %}
+                    {% if pass.sampler.cfg is defined %}<tr><td>CFG</td><td>{{ pass.sampler.cfg }}</td></tr>{% endif %}
+                    {% if pass.sampler.sampler_name is defined %}<tr><td>Sampler</td><td>{{ pass.sampler.sampler_name }}</td></tr>{% endif %}
+                    {% if pass.sampler.scheduler is defined %}<tr><td>Scheduler</td><td>{{ pass.sampler.scheduler }}</td></tr>{% endif %}
+                    {% if pass.sampler.denoise is defined %}<tr><td>Denoise</td><td>{{ pass.sampler.denoise }}</td></tr>{% endif %}
+                </table>
+            </div>
+            {% endif %}
+            {% endif %}
+
+            {% if p.model %}
+            <div class="metadata-section">
+                <h3>模型</h3>
+                {% for m in p.model %}
+                <pre class="prompt-text">{{ m }}</pre>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            {% if p.loras %}
+            <div class="metadata-section">
+                <h3>LoRA</h3>
+                {% for l in p.loras %}
+                <pre class="prompt-text">{{ l.name }}{% if l.strength != 1 %} (strength: {{ l.strength }}){% endif %}</pre>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            <details>
+                <summary>查看原始 JSON</summary>
+                <pre class="json-block">{{ metadata.prompt | tojson(indent=2) }}</pre>
+            </details>
+        {% else %}
+            {% for key, value in metadata.items() %}
+            <div class="metadata-section">
+                <h3>{{ key }}</h3>
+                <div class="metadata-content">
+                    {% if value is mapping %}
+                        <pre class="json-block">{{ value | tojson(indent=2) }}</pre>
+                    {% elif value is string %}
+                        <pre class="prompt-text">{{ value }}</pre>
+                    {% else %}
+                        <pre class="json-block">{{ value | tojson(indent=2) }}</pre>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        {% endif %}
+        {% endif %}
+    </aside>
+</div>
+

@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ComfyPicShow</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header>
+        <h1><a href="/">ComfyPicShow</a></h1>
+        <a href="/favorites" class="fav-nav-link" title="收藏">⭐ 收藏</a>
+        <nav class="breadcrumbs">
+            {% for crumb in breadcrumbs %}
+                {% if not loop.last %}
+                    <a href="{{ '/browse/' + crumb.path if crumb.path else '/' }}">{{ crumb.name }}</a>
+                    <span class="sep">/</span>
+                {% else %}
+                    <span class="current">{{ crumb.name }}</span>
+                {% endif %}
+            {% endfor %}
+        </nav>
+        <form class="search-form" action="/search" method="get">
+            <input type="text" name="q" placeholder="搜索提示词或文件名..." value="{{ query or '' }}">
+            <button type="submit">搜索</button>
+        </form>
+        <button class="new-list-btn" onclick="showNewListInput()" title="新建列表">+ 新建列表</button>
+        <button class="cleanup-btn" onclick="runCleanup()" title="清理已删除文件的缓存数据">🧹 清理</button>
+    </header>
+
+    <main>
+        <section id="custom-lists" class="custom-lists-section">
+            <div class="section-top">
+                <h2>自定义列表</h2>
+            </div>
+            <div id="lists-container" class="lists-container">
+                <span class="lists-loading">加载中...</span>
+            </div>
+        </section>
+
+        {% if dirs %}
+        <section class="dir-section">
+            <h2>目录</h2>
+            <div class="dir-grid">
+                {% for d in dirs %}
+                <a href="/browse/{{ d.path }}" class="dir-card">
+                    <div class="dir-icon">📁</div>
+                    <span class="dir-name">{{ d.name }}</span>
+                </a>
+                {% endfor %}
+            </div>
+        </section>
+        {% endif %}
+
+        {% if images %}
+        <section class="image-section">
+            <div class="section-top">
+                <h2>图片 <span class="count">({{ images|length }})</span></h2>
+                {% include "_sort_controls.html" %}
+            </div>
+            <div class="image-grid">
+                {% for img in images %}
+                <a href="/image/{{ img.path }}" class="image-card" data-img="{{ img.path }}">
+                    <div class="thumb-wrapper">
+                        {% if img.has_thumbnail %}
+                            <img src="/thumbnail/{{ img.path }}" alt="{{ img.name }}" loading="lazy">
+                        {% else %}
+                            <img src="/thumbnail/{{ img.path }}" alt="{{ img.name }}" loading="lazy" onerror="this.parentElement.innerHTML='<div class=\\'placeholder\\'>?</div>'">
+                        {% endif %}
+                        {% if img.is_video %}
+                        <div class="video-badge">▶</div>
+                        {% endif %}
+                    </div>
+                    <span class="image-name" title="{{ img.name }}">{{ img.name }}</span>
+                </a>
+                {% endfor %}
+            </div>
+            <div id="scroll-loader" class="scroll-loader" style="display:{{ 'block' if has_more else 'none' }}">加载中...</div>
+        </section>
+        {% endif %}
+
+        {% if not dirs and not images %}
+        <div class="empty">
+            <p>此目录为空</p>
+            {% if breadcrumbs|length > 1 %}
+                <p><a href="/browse/{{ breadcrumbs[-2].path }}">返回上级目录</a></p>
+            {% endif %}
+        </div>
+        {% endif %}
+    </main>
+
+    <!-- Modal -->
+    <div id="image-modal" class="modal-overlay">
+        <div class="modal-backdrop"></div>
+        <div class="modal-container">
+            <button class="modal-close" title="关闭 (ESC)">&times;</button>
+            <div class="modal-body">
+                <div class="modal-spinner"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    // --- Modal logic ---
+    var modal = document.getElementById('image-modal');
+    var modalBody = modal.querySelector('.modal-body');
+    var modalClose = modal.querySelector('.modal-close');
+    var modalBackdrop = modal.querySelector('.modal-backdrop');
+    var currentImgPath = null;
+    var originalUrl = location.pathname + location.search;
+    var _modalPushed = false;
+
+    function openModal(imgPath) {
+        if (currentImgPath === imgPath && modal.classList.contains('active')) return;
+        if (!currentImgPath) originalUrl = location.pathname + location.search;
+        currentImgPath = imgPath;
+        modal.classList.add('active');
+        document.body.style.overflow = 'hidden';
+        modalBody.innerHTML = '<div class="modal-spinner"></div>';
+        history.pushState({modal: imgPath}, '', '/#/image/' + imgPath);
+        _modalPushed = true;
+
+        fetch('/fragment/detail/' + imgPath)
+            .then(function(res) {
+                if (!res.ok) throw new Error('Not found');
+                return res.text();
+            })
+            .then(function(html) {
+                modalBody.innerHTML = html;
+                // Read prompt data from data- attributes (innerHTML doesn't execute scripts)
+                var panel = modalBody.firstElementChild;
+                if (panel) {
+                    var pos = panel.getAttribute('data-positive');
+                    var neg = panel.getAttribute('data-negative');
+                    if (pos || neg) {
+                        modalBody._promptData = { positive: pos || '', negative: neg || '' };
+                    }
+                }
+                // Initialize video controls if this is a video
+                initVideoControls();
+                // Initialize favorite star
+                initFavoriteStars();
+                initNotes();
+            })
+            .catch(function() {
+                modalBody.innerHTML = '<div class="empty"><p>无法加载图片信息</p></div>';
+            });
+    }
+
+    function closeModal(fromPopState) {
+        modal.classList.remove('active');
+        document.body.style.overflow = '';
+        currentImgPath = null;
+        modalBody.innerHTML = '<div class="modal-spinner"></div>';
+        if (!fromPopState && _modalPushed) {
+            _modalPushed = false;
+            history.back();
+        }
+    }
+
+    window.addEventListener('popstate', function(e) {
+        if (modal.classList.contains('active')) {
+            closeModal(true);
+        }
+    });
+
+    modalClose.addEventListener('click', function() { closeModal(); });
+    modalBackdrop.addEventListener('click', function() { closeModal(); });
+
+    function initVideoControls() {
+        var video = document.getElementById('detail-video');
+        if (!video) return;
+
+        var overlay = document.getElementById('pause-overlay');
+        var btnMute = document.getElementById('btn-mute');
+
+        function updateOverlay() {
+            if (overlay) {
+                overlay.classList.toggle('show', video.paused);
+            }
+        }
+
+        function updateMuteBtn() {
+            if (!btnMute) return;
+            if (video.muted) {
+                btnMute.textContent = '🔇';
+                btnMute.title = '取消静音';
+            } else {
+                btnMute.textContent = '🔊';
+                btnMute.title = '静音';
+            }
+        }
+
+        // Click video area to toggle play/pause
+        video.addEventListener('click', function() {
+            if (video.paused) { video.play(); } else { video.pause(); }
+        });
+
+        if (btnMute) {
+            btnMute.onclick = function(e) {
+                e.stopPropagation();
+                video.muted = !video.muted;
+            };
+        }
+
+        video.addEventListener('play', updateOverlay);
+        video.addEventListener('pause', updateOverlay);
+        video.addEventListener('volumechange', updateMuteBtn);
+
+        updateOverlay();
+        updateMuteBtn();
+    }
+
+    document.addEventListener('keydown', function(e) {
+        if (!modal.classList.contains('active')) return;
+        if (e.key === 'Escape') {
+            closeModal();
+        } else if (e.key === 'ArrowLeft') {
+            navModal(-1);
+        } else if (e.key === 'ArrowRight') {
+            navModal(1);
+        }
+    });
+
+    // Delegate click on image cards
+    var _imageList = [];
+
+    function updateImageList() {
+        _imageList = [];
+        document.querySelectorAll('.image-card').forEach(function(card) {
+            var p = card.getAttribute('data-img');
+            if (p) _imageList.push(p);
+        });
+    }
+
+    document.addEventListener('click', function(e) {
+        var card = e.target.closest('.image-card');
+        if (!card) return;
+        var imgPath = card.getAttribute('data-img');
+        if (imgPath) {
+            e.preventDefault();
+            updateImageList();
+            openModal(imgPath);
+        }
+    });
+
+    function navModal(direction) {
+        if (!currentImgPath) return;
+        updateImageList();
+        var idx = _imageList.indexOf(currentImgPath);
+        if (idx < 0) return;
+        var newIdx = idx + direction;
+        if (newIdx >= 0 && newIdx < _imageList.length) {
+            openModal(_imageList[newIdx]);
+        }
+    }
+
+    // --- Copy functions ---
+    function copyText(text) {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(function() {
+                showToast('已复制');
+            }).catch(function() { fallbackCopy(text); });
+        } else {
+            fallbackCopy(text);
+        }
+    }
+
+    function fallbackCopy(text) {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); } catch(e) {}
+        document.body.removeChild(ta);
+        showToast('已复制');
+    }
+
+    function modalCopyAll(type) {
+        var text = (modalBody._promptData && modalBody._promptData[type]) || '';
+        copyText(text);
+    }
+
+    function switchPass(btn) {
+        var passIdx = btn.getAttribute('data-pass');
+        var container = btn.closest('.info-panel') || modalBody;
+        // Update tab buttons
+        container.querySelectorAll('.pass-tab').forEach(function(t) {
+            t.classList.toggle('active', t === btn);
+        });
+        // Show matching content
+        container.querySelectorAll('.pass-content').forEach(function(c) {
+            c.classList.toggle('active', c.getAttribute('data-pass') === passIdx);
+        });
+    }
+
+    function toggleFavorite(el) {
+        var path = el.getAttribute('data-path');
+        fetch('/api/favorite/' + path, { method: 'POST' })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                updateStar(el, data.favorited);
+            });
+    }
+
+    function initFavoriteStars() {
+        var stars = modalBody.querySelectorAll('.fav-star');
+        stars.forEach(function(star) {
+            var path = star.getAttribute('data-path');
+            fetch('/api/favorite/' + path)
+                .then(function(r) { return r.json(); })
+                .then(function(data) { updateStar(star, data.favorited); });
+        });
+    }
+
+    function updateStar(el, favorited) {
+        el.textContent = favorited ? '⭐' : '☆';
+        el.classList.toggle('favorited', favorited);
+    }
+
+    function initNotes() {
+        var notesArea = modalBody.querySelector('.notes-area');
+        if (!notesArea) return;
+        var display = notesArea.querySelector('.notes-display');
+        var input = notesArea.querySelector('.notes-input');
+        var path = notesArea.getAttribute('data-path');
+
+        fetch('/api/note/' + path)
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.text) {
+                    display.textContent = data.text;
+                    display.style.display = 'block';
+                    input.style.display = 'none';
+                }
+            });
+    }
+
+    function startEditNote(displayEl) {
+        var notesArea = displayEl.closest('.notes-area');
+        var input = notesArea.querySelector('.notes-input');
+        displayEl.style.display = 'none';
+        input.value = displayEl.textContent;
+        input.style.display = 'block';
+        input.focus();
+    }
+
+    function saveNote(textarea) {
+        var notesArea = textarea.closest('.notes-area');
+        var display = notesArea.querySelector('.notes-display');
+        var path = notesArea.getAttribute('data-path');
+        var text = textarea.value.trim();
+
+        fetch('/api/note/' + path, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({text: text})
+        }).then(function() {
+            if (text) {
+                display.textContent = text;
+                display.style.display = 'block';
+            } else {
+                display.textContent = '';
+                display.style.display = 'none';
+            }
+            textarea.style.display = 'none';
+        });
+    }
+
+    function copyPassSection(el, type) {
+        var passContent = el.closest('.pass-content');
+        if (passContent) {
+            var text = passContent.getAttribute('data-' + type) || '';
+            copyText(text);
+        }
+    }
+
+    function showToast(msg) {
+        var t = document.getElementById('copy-toast');
+        if (!t) {
+            t = document.createElement('div');
+            t.id = 'copy-toast';
+            t.textContent = msg;
+            document.body.appendChild(t);
+        } else {
+            t.textContent = msg;
+        }
+        t.classList.add('show');
+        clearTimeout(t._timer);
+        t._timer = setTimeout(function() { t.classList.remove('show'); }, 1500);
+    }
+
+    // Event delegation for tag copy clicks
+    document.addEventListener('click', function(e) {
+        var copyBtn = e.target.closest('.tag-copy');
+        if (!copyBtn) return;
+        e.stopPropagation();
+        e.preventDefault();
+        var tagText = copyBtn.parentElement.querySelector('.tag-text');
+        if (tagText) {
+            copyText(tagText.textContent.trim());
+        }
+    });
+
+    // Open modal on page load if URL has hash /image/...
+    (function() {
+        var m = location.hash.match(/^#\/image\/(.+)/) || location.pathname.match(/^\/image\/(.+)/);
+        if (m) {
+            openModal(m[1]);
+        }
+    })();
+
+    // --- Infinite scroll ---
+    var _scrollPage = {{ page or 1 }};
+    var _hasMore = {{ (has_more or false) | tojson }};
+    var _loading = false;
+    var _scrollUrl = location.pathname;
+    var _scrollQuery = '';
+
+    function buildImageCard(img) {
+        var thumbSrc = '/thumbnail/' + img.path;
+        var thumbImg = '<img src=\"' + thumbSrc + '\" alt=\"' + img.name + '\" loading=\"lazy\">';
+        var videoBadge = img.is_video ? '<div class=\"video-badge\">▶</div>' : '';
+        return '<a href=\"/image/' + img.path + '\" class=\"image-card\" data-img=\"' + img.path + '\">' +
+            '<div class=\"thumb-wrapper\">' + thumbImg + videoBadge + '</div>' +
+            '<span class=\"image-name\" title=\"' + img.name + '\">' + img.name + '</span>' +
+        '</a>';
+    }
+
+    function loadMore() {
+        if (_loading || !_hasMore) return;
+        _loading = true;
+        var loader = document.getElementById('scroll-loader');
+        if (loader) loader.style.display = 'block';
+
+        var params = 'page=' + (_scrollPage + 1) + '&ajax=1&sort=' + encodeURIComponent('{{ sort or "name" }}') + '&order=' + encodeURIComponent('{{ order or "asc" }}');
+        if (_scrollQuery) params += '&q=' + encodeURIComponent(_scrollQuery);
+
+        fetch(_scrollUrl + '?' + params)
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                _scrollPage = data.page;
+                _hasMore = data.has_more;
+                var grid = document.querySelector('.image-grid');
+                if (grid) {
+                    data.images.forEach(function(img) {
+                        var div = document.createElement('div');
+                        div.innerHTML = buildImageCard(img);
+                        grid.appendChild(div.firstElementChild);
+                    });
+                }
+                _loading = false;
+                if (loader) loader.style.display = 'none';
+                if (!_hasMore && loader) loader.textContent = '— 已加载全部 —';
+            })
+            .catch(function() {
+                _loading = false;
+                if (loader) loader.style.display = 'none';
+            });
+    }
+
+    window.addEventListener('scroll', function() {
+        if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 400) {
+            loadMore();
+        }
+    });
+
+    // --- Custom lists ---
+    function loadCustomLists() {
+        fetch('/api/lists')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var container = document.getElementById('lists-container');
+                if (!container) return;
+                if (data.length === 0) {
+                    container.innerHTML = '<span class="lists-empty">暂无列表，点击上方"新建列表"创建</span>';
+                    return;
+                }
+                var html = '';
+                data.forEach(function(lst) {
+                    html += '<a href="/lists/' + lst.id + '" class="list-tag">' + lst.name + ' (' + lst.count + ')</a>';
+                });
+                container.innerHTML = html;
+            })
+            .catch(function() {
+                var container = document.getElementById('lists-container');
+                if (container) container.innerHTML = '<span class="lists-empty">加载失败</span>';
+            });
+    }
+
+    function showNewListInput() {
+        var name = prompt('请输入列表名称:');
+        if (!name || !name.trim()) return;
+        fetch('/api/lists', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name: name.trim()})
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.id) {
+                loadCustomLists();
+                showToast('列表「' + data.name + '」已创建');
+            } else {
+                showToast('创建失败: ' + (data.error || '未知错误'));
+            }
+        });
+    }
+
+    loadCustomLists();
+
+    function runCleanup() {
+        if (!confirm('清理所有已删除文件的缓存数据？（包括缩略图、元数据缓存、收藏、备注、列表）')) return;
+        var btn = document.querySelector('.cleanup-btn');
+        btn.textContent = '清理中...';
+        btn.disabled = true;
+        fetch('/api/cleanup', { method: 'POST' })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var parts = [];
+                if (data.thumbnails) parts.push('缩略图: ' + data.thumbnails);
+                if (data.metadata) parts.push('元数据: ' + data.metadata);
+                if (data.favorites) parts.push('收藏: ' + data.favorites);
+                if (data.notes) parts.push('备注: ' + data.notes);
+                if (data.lists) parts.push('列表项: ' + data.lists);
+                if (data.index) parts.push('文件索引: 已重建');
+                showToast(parts.length ? '已清理: ' + parts.join(', ') : '无需清理');
+                btn.textContent = '🧹 清理';
+                btn.disabled = false;
+                loadCustomLists();
+            })
+            .catch(function() {
+                showToast('清理失败');
+                btn.textContent = '🧹 清理';
+                btn.disabled = false;
+            });
+    }
+
+    // --- List selector in modal ---
+    function toggleListPanel(el) {
+        var panel = document.getElementById('list-selector');
+        if (!panel) return;
+        var show = panel.style.display === 'none';
+        panel.style.display = show ? 'block' : 'none';
+        if (show && el) {
+            var path = el.getAttribute('data-path');
+            loadListSelector(path);
+        }
+    }
+
+    function loadListSelector(path) {
+        var body = document.getElementById('list-selector-body');
+        if (!body) return;
+        body.innerHTML = '加载中...';
+        Promise.all([
+            fetch('/api/lists').then(function(r) { return r.json(); }),
+            fetch('/api/lists/for-item/' + path).then(function(r) { return r.json(); })
+        ]).then(function(results) {
+            var allLists = results[0];
+            var memberLists = results[1];
+            var memberIds = memberLists.map(function(l) { return l.id; });
+
+            if (allLists.length === 0) {
+                body.innerHTML = '<div class="list-empty-hint">暂无列表，请先在首页创建</div>';
+                return;
+            }
+
+            var html = '';
+            allLists.forEach(function(lst) {
+                var checked = memberIds.indexOf(lst.id) >= 0 ? ' checked' : '';
+                html += '<label class="list-check-item"><input type="checkbox" value="' + lst.id + '"' + checked + ' onchange="toggleListItem(this, \'' + path.replace(/\\/g, '\\\\').replace(/'/g, '\\\'') + '\')"> ' + lst.name + '</label>';
+            });
+            body.innerHTML = html;
+        });
+    }
+
+    function toggleListItem(cb, path) {
+        var lid = cb.value;
+        var method = cb.checked ? 'POST' : 'DELETE';
+        var url = '/api/lists/' + lid + '/items' + (method === 'DELETE' ? '?path=' + encodeURIComponent(path) : '');
+        var body = method === 'POST' ? JSON.stringify({path: path}) : null;
+        fetch(url, {
+            method: method,
+            headers: body ? {'Content-Type': 'application/json'} : {},
+            body: body
+        }).then(function() {
+            loadCustomLists();
+        });
+    }
+    </script>
+</body>
+</html>

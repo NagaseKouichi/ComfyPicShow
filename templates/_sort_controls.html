@@ -1,0 +1,18 @@
+<div class="sort-controls">
+    <span class="sort-label">排序:</span>
+    {% set base_url = request.path %}
+    {% set q_param = ("&q=" + query) if query else "" %}
+
+    {% set name_asc_url = base_url + "?sort=name&order=asc" + q_param %}
+    {% set name_desc_url = base_url + "?sort=name&order=desc" + q_param %}
+    {% set date_asc_url = base_url + "?sort=date&order=asc" + q_param %}
+    {% set date_desc_url = base_url + "?sort=date&order=desc" + q_param %}
+
+    {% set cur_sort = sort or "name" %}
+    {% set cur_order = order or "asc" %}
+
+    <a href="{{ name_asc_url }}" class="sort-btn {% if cur_sort == 'name' and cur_order == 'asc' %}active{% endif %}" title="文件名 A→Z">文件名 ▲</a>
+    <a href="{{ name_desc_url }}" class="sort-btn {% if cur_sort == 'name' and cur_order == 'desc' %}active{% endif %}" title="文件名 Z→A">文件名 ▼</a>
+    <a href="{{ date_asc_url }}" class="sort-btn {% if cur_sort == 'date' and cur_order == 'asc' %}active{% endif %}" title="时间 旧→新">时间 ▲</a>
+    <a href="{{ date_desc_url }}" class="sort-btn {% if cur_sort == 'date' and cur_order == 'desc' %}active{% endif %}" title="时间 新→旧">时间 ▼</a>
+</div>

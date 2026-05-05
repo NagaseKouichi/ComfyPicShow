@@ -1,0 +1,21 @@
+version: "3.8"
+
+services:
+  comfypicshow:
+    build: .
+    container_name: comfypicshow
+    ports:
+      - "${PORT:-5000}:${PORT:-5000}"
+    environment:
+      - PORT=${PORT:-5000}
+      - IMAGES_DIR=/images
+      - DATA_DIR=/data
+    volumes:
+      # Map host image directory to container
+      - ${IMAGES_DIR:-./images}:/images
+      # Persist cache and config data
+      - ${DATA_DIR:-./data}:/data
+    devices:
+      # GPU device for hardware-accelerated video decoding (VAAPI/QSV)
+      - /dev/dri:/dev/dri
+    restart: unless-stopped

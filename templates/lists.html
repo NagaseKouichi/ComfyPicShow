@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ list_name }} - ComfyPicShow</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header>
+        <h1><a href="/">ComfyPicShow</a></h1>
+        <a href="/favorites" class="fav-nav-link" title="收藏">⭐ 收藏</a>
+        <nav class="breadcrumbs">
+            <a href="/">Home</a>
+            <span class="sep">/</span>
+            <span class="current">{{ list_name }}</span>
+        </nav>
+        <form class="search-form" action="/search" method="get">
+            <input type="text" name="q" placeholder="搜索提示词或文件名...">
+            <button type="submit">搜索</button>
+        </form>
+    </header>
+
+    <main>
+        {% if images %}
+        <section class="image-section">
+            <div class="section-top">
+                <h2>{{ list_name }} <span class="count">({{ total }})</span> <span class="list-delete-btn" onclick="deleteCurrentList()" title="删除此列表">🗑</span></h2>
+                <div class="section-top-right">
+                    <div class="view-toggle">
+                        <button class="view-btn active" data-mode="grid" onclick="setViewMode('grid')" title="缩略图模式">▦</button>
+                        <button class="view-btn" data-mode="list" onclick="setViewMode('list')" title="列表模式">☰</button>
+                        <button class="view-btn" data-mode="large" onclick="setViewMode('large')" title="大图模式">◻</button>
+                    </div>
+                </div>
+            </div>
+            <div class="image-grid">
+                {% for img in images %}
+                <a href="/image/{{ img.path }}" class="image-card" data-img="{{ img.path }}" data-path="{{ img.path }}" data-is-video="{{ 'true' if img.is_video else 'false' }}">
+                    <div class="thumb-wrapper">
+                        {% if img.has_thumbnail %}
+                            <img src="/thumbnail/{{ img.path }}" alt="{{ img.name }}" loading="lazy">
+                        {% else %}
+                            <img src="/thumbnail/{{ img.path }}" alt="{{ img.name }}" loading="lazy" onerror="this.parentElement.innerHTML='<div class=\\'placeholder\\'>?</div>'">
+                        {% endif %}
+                        {% if img.is_video %}
+                        <div class="video-badge">▶</div>
+                        {% endif %}
+                    </div>
+                    <span class="image-name" title="{{ img.name }}">{{ img.name }}</span>
+                    <span class="card-note"></span>
+                </a>
+                {% endfor %}
+            </div>
+        </section>
+        {% else %}
+        <div class="empty">
+            <p>此列表为空</p>
+            <p><a href="/">返回首页</a></p>
+        </div>
+        {% endif %}
+    </main>
+
+    <!-- Modal -->
+    <div id="image-modal" class="modal-overlay">
+        <div class="modal-backdrop"></div>
+        <div class="modal-container">
+            <button class="modal-close" title="关闭 (ESC)">&times;</button>
+            <div class="modal-body"><div class="modal-spinner"></div></div>
+        </div>
+    </div>
+
+    <script>
+    var modal = document.getElementById('image-modal');
+    var modalBody = modal.querySelector('.modal-body');
+    var modalClose = modal.querySelector('.modal-close');
+    var modalBackdrop = modal.querySelector('.modal-backdrop');
+    var currentImgPath = null;
+    var originalUrl = location.pathname + location.search;
+    var _modalPushed = false;
+
+    function openModal(imgPath) {
+        if (currentImgPath === imgPath && modal.classList.contains('active')) return;
+        if (!currentImgPath) originalUrl = location.pathname + location.search;
+        currentImgPath = imgPath;
+        modal.classList.add('active');
+        document.body.style.overflow = 'hidden';
+        modalBody.innerHTML = '<div class="modal-spinner"></div>';
+        history.pushState({modal: imgPath}, '', '/#/image/' + imgPath);
+        _modalPushed = true;
+        fetch('/fragment/detail/' + imgPath)
+            .then(function(res) { if (!res.ok) throw new Error('Not found'); return res.text(); })
+            .then(function(html) {
+                modalBody.innerHTML = html;
+                var panel = modalBody.firstElementChild;
+                if (panel) {
+                    var pos = panel.getAttribute('data-positive');
+                    var neg = panel.getAttribute('data-negative');
+                    if (pos || neg) modalBody._promptData = { positive: pos || '', negative: neg || '' };
+                }
+                initVideoControls();
+                initFavoriteStars();
+                initNotes();
+            })
+            .catch(function() { modalBody.innerHTML = '<div class="empty"><p>无法加载</p></div>'; });
+    }
+
+    function closeModal(fromPopState) {
+        modal.classList.remove('active');
+        document.body.style.overflow = '';
+        currentImgPath = null;
+        modalBody.innerHTML = '<div class="modal-spinner"></div>';
+        if (!fromPopState && _modalPushed) {
+            _modalPushed = false;
+            history.back();
+        }
+    }
+
+    window.addEventListener('popstate', function(e) {
+        if (modal.classList.contains('active')) {
+            closeModal(true);
+        }
+    });
+
+    modalClose.addEventListener('click', function() { closeModal(); });
+    modalBackdrop.addEventListener('click', function() { closeModal(); });
+
+    function initVideoControls() {
+        var video = document.getElementById('detail-video');
+        if (!video) return;
+        var overlay = document.getElementById('pause-overlay');
+        var btnMute = document.getElementById('btn-mute');
+        function updateOverlay() { if (overlay) overlay.classList.toggle('show', video.paused); }
+        function updateMuteBtn() {
+            if (!btnMute) return;
+            if (video.muted) { btnMute.textContent = '🔇'; btnMute.title = '取消静音'; }
+            else { btnMute.textContent = '🔊'; btnMute.title = '静音'; }
+        }
+        video.addEventListener('click', function() { if (video.paused) video.play(); else video.pause(); });
+        if (btnMute) btnMute.onclick = function(e) { e.stopPropagation(); video.muted = !video.muted; };
+        video.addEventListener('play', updateOverlay);
+        video.addEventListener('pause', updateOverlay);
+        video.addEventListener('volumechange', updateMuteBtn);
+        updateOverlay(); updateMuteBtn();
+    }
+
+    document.addEventListener('keydown', function(e) {
+        if (!modal.classList.contains('active')) return;
+        if (e.key === 'Escape') closeModal();
+        else if (e.key === 'ArrowLeft') navModal(-1);
+        else if (e.key === 'ArrowRight') navModal(1);
+    });
+
+    var _imageList = [];
+    function updateImageList() {
+        _imageList = [];
+        document.querySelectorAll('.image-card').forEach(function(card) {
+            var p = card.getAttribute('data-img');
+            if (p) _imageList.push(p);
+        });
+    }
+
+    document.addEventListener('click', function(e) {
+        var card = e.target.closest('.image-card');
+        if (!card) return;
+        if (_viewMode === 'large') {
+            e.preventDefault();
+            return;
+        }
+        var imgPath = card.getAttribute('data-img');
+        if (imgPath) { e.preventDefault(); updateImageList(); openModal(imgPath); }
+    });
+
+    function navModal(direction) {
+        if (!currentImgPath) return;
+        updateImageList();
+        var idx = _imageList.indexOf(currentImgPath);
+        if (idx < 0) return;
+        var newIdx = idx + direction;
+        if (newIdx >= 0 && newIdx < _imageList.length) openModal(_imageList[newIdx]);
+    }
+
+    function copyText(text) {
+        if (navigator.clipboard && navigator.clipboard.writeText)
+            navigator.clipboard.writeText(text).then(function(){showToast('已复制')}).catch(function(){fallbackCopy(text)});
+        else fallbackCopy(text);
+    }
+    function fallbackCopy(text) {
+        var ta = document.createElement('textarea'); ta.value = text;
+        ta.style.position = 'fixed'; ta.style.left = '-9999px'; document.body.appendChild(ta);
+        ta.select(); try { document.execCommand('copy'); } catch(e) {} document.body.removeChild(ta);
+        showToast('已复制');
+    }
+    function modalCopyAll(type) {
+        var text = (modalBody._promptData && modalBody._promptData[type]) || '';
+        copyText(text);
+    }
+    function toggleFavorite(el) {
+        var path = el.getAttribute('data-path');
+        fetch('/api/favorite/' + path, { method: 'POST' })
+            .then(function(r) { return r.json(); })
+            .then(function(data) { updateStar(el, data.favorited); });
+    }
+    function initFavoriteStars() {
+        modalBody.querySelectorAll('.fav-star').forEach(function(star) {
+            var path = star.getAttribute('data-path');
+            fetch('/api/favorite/' + path)
+                .then(function(r) { return r.json(); })
+                .then(function(data) { updateStar(star, data.favorited); });
+        });
+    }
+    function updateStar(el, favorited) { el.textContent = favorited ? '⭐' : '☆'; el.classList.toggle('favorited', favorited); }
+    function initNotes() {
+        var notesArea = modalBody.querySelector('.notes-area');
+        if (!notesArea) return;
+        var display = notesArea.querySelector('.notes-display');
+        var input = notesArea.querySelector('.notes-input');
+        var path = notesArea.getAttribute('data-path');
+        fetch('/api/note/' + path)
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.text) { display.textContent = data.text; display.style.display = 'block'; input.style.display = 'none'; }
+            });
+    }
+    function startEditNote(displayEl) {
+        var notesArea = displayEl.closest('.notes-area');
+        var input = notesArea.querySelector('.notes-input');
+        displayEl.style.display = 'none'; input.value = displayEl.textContent;
+        input.style.display = 'block'; input.focus();
+    }
+    function saveNote(textarea) {
+        var notesArea = textarea.closest('.notes-area');
+        var display = notesArea.querySelector('.notes-display');
+        var path = notesArea.getAttribute('data-path');
+        var text = textarea.value.trim();
+        fetch('/api/note/' + path, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({text: text}) })
+            .then(function() {
+                if (text) { display.textContent = text; display.style.display = 'block'; }
+                else { display.textContent = ''; display.style.display = 'none'; }
+                textarea.style.display = 'none';
+            });
+    }
+    function switchPass(btn) {
+        var passIdx = btn.getAttribute('data-pass');
+        (btn.closest('.info-panel') || modalBody).querySelectorAll('.pass-tab').forEach(function(t) { t.classList.toggle('active', t === btn); });
+        (btn.closest('.info-panel') || modalBody).querySelectorAll('.pass-content').forEach(function(c) { c.classList.toggle('active', c.getAttribute('data-pass') === passIdx); });
+    }
+    function copyPassSection(el, type) {
+        var passContent = el.closest('.pass-content');
+        if (passContent) { var text = passContent.getAttribute('data-' + type) || ''; copyText(text); }
+    }
+    function showToast(msg) {
+        var t = document.getElementById('copy-toast');
+        if (!t) { t = document.createElement('div'); t.id = 'copy-toast'; t.textContent = msg; document.body.appendChild(t); }
+        else t.textContent = msg;
+        t.classList.add('show');
+        clearTimeout(t._timer);
+        t._timer = setTimeout(function() { t.classList.remove('show'); }, 1500);
+    }
+    document.addEventListener('click', function(e) {
+        var copyBtn = e.target.closest('.tag-copy');
+        if (!copyBtn) return;
+        e.stopPropagation(); e.preventDefault();
+        var tagText = copyBtn.parentElement.querySelector('.tag-text');
+        if (tagText) copyText(tagText.textContent.trim());
+    });
+
+    function deleteCurrentList() {
+        if (!confirm('确定删除该列表吗？')) return;
+        fetch('/api/lists/{{ list_id }}', { method: 'DELETE' })
+            .then(function() { location.href = '/'; });
+    }
+
+    // --- Drag-and-drop reorder ---
+    var _dragSrc = null;
+    // Full list of all item paths (not just current page)
+    var _allPaths = {{ all_paths | tojson }};
+
+    function enableDrag() {
+        document.querySelectorAll('.image-card').forEach(function(card) {
+            card.setAttribute('draggable', 'true');
+            card.addEventListener('dragstart', onDragStart);
+            card.addEventListener('dragover', onDragOver);
+            card.addEventListener('dragend', onDragEnd);
+        });
+    }
+
+    function onDragStart(e) {
+        if (_viewMode === 'large') { e.preventDefault(); return; }
+        _dragSrc = this;
+        this.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+    }
+
+    function onDragOver(e) {
+        if (_viewMode === 'large') return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        var target = e.target.closest('.image-card');
+        if (!target || target === _dragSrc) return;
+        var grid = document.querySelector('.image-grid');
+        var cards = Array.from(grid.querySelectorAll('.image-card'));
+        var srcIdx = cards.indexOf(_dragSrc);
+        var tgtIdx = cards.indexOf(target);
+        if (srcIdx < tgtIdx) {
+            grid.insertBefore(_dragSrc, target.nextSibling);
+        } else {
+            grid.insertBefore(_dragSrc, target);
+        }
+        // Sync _allPaths with DOM order
+        _allPaths = [];
+        grid.querySelectorAll('.image-card').forEach(function(card) {
+            _allPaths.push(card.getAttribute('data-path'));
+        });
+    }
+
+    function onDragEnd(e) {
+        this.classList.remove('dragging');
+        saveOrder();
+    }
+
+    function saveOrder() {
+        fetch('/api/lists/{{ list_id }}/reorder', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({items: _allPaths})
+        }).then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.reordered) showToast('排序已保存');
+        })
+        .catch(function() { showToast('保存失败'); });
+    }
+
+    // Init _allPaths from DOM order on load
+    function initPaths() {
+        _allPaths = [];
+        document.querySelectorAll('.image-card').forEach(function(card) {
+            var p = card.getAttribute('data-path');
+            if (p) _allPaths.push(p);
+        });
+    }
+
+    // Enable drag on initial load
+    document.addEventListener('DOMContentLoaded', function() {
+        initPaths();
+        enableDrag();
+    });
+
+    function toggleListPanel(el) {
+        var panel = document.getElementById('list-selector');
+        if (!panel) return;
+        var show = panel.style.display === 'none';
+        panel.style.display = show ? 'block' : 'none';
+        if (show && el) {
+            var path = el.getAttribute('data-path');
+            loadListSelector(path);
+        }
+    }
+
+    function loadListSelector(path) {
+        var body = document.getElementById('list-selector-body');
+        if (!body) return;
+        body.innerHTML = '加载中...';
+        Promise.all([
+            fetch('/api/lists').then(function(r) { return r.json(); }),
+            fetch('/api/lists/for-item/' + path).then(function(r) { return r.json(); })
+        ]).then(function(results) {
+            var allLists = results[0];
+            var memberLists = results[1];
+            var memberIds = memberLists.map(function(l) { return l.id; });
+            if (allLists.length === 0) {
+                body.innerHTML = '<div class="list-empty-hint">暂无列表，请先在首页创建</div>';
+                return;
+            }
+            var html = '';
+            allLists.forEach(function(lst) {
+                var checked = memberIds.indexOf(lst.id) >= 0 ? ' checked' : '';
+                html += '<label class="list-check-item"><input type="checkbox" value="' + lst.id + '"' + checked + ' onchange="toggleListItem(this, \'' + path.replace(/\\/g, '\\\\').replace(/'/g, '\\\'') + '\')"> ' + lst.name + '</label>';
+            });
+            body.innerHTML = html;
+        });
+    }
+
+    function toggleListItem(cb, path) {
+        var lid = cb.value;
+        var method = cb.checked ? 'POST' : 'DELETE';
+        var url = '/api/lists/' + lid + '/items' + (method === 'DELETE' ? '?path=' + encodeURIComponent(path) : '');
+        var body = method === 'POST' ? JSON.stringify({path: path}) : null;
+        fetch(url, { method: method, headers: body ? {'Content-Type': 'application/json'} : {}, body: body });
+    }
+
+    var _viewMode = localStorage.getItem('viewMode') || 'grid';
+    function setViewMode(mode) {
+        _viewMode = mode;
+        localStorage.setItem('viewMode', mode);
+        document.querySelectorAll('.view-btn').forEach(function(b) { b.classList.toggle('active', b.getAttribute('data-mode') === mode); });
+        var section = document.querySelector('.image-section');
+        section.classList.toggle('list-mode', mode === 'list');
+        section.classList.toggle('large-mode', mode === 'large');
+        if (window._largeObserver) { window._largeObserver.disconnect(); window._largeObserver = null; }
+        if (mode === 'large') initLargeMode();
+        loadAllNotes();
+    }
+    function initLargeMode() {
+        var observer = new IntersectionObserver(function(entries) {
+            entries.forEach(function(entry) {
+                if (!entry.isIntersecting) return;
+                var card = entry.target;
+                if (card.dataset.largeLoaded) return;
+                card.dataset.largeLoaded = '1';
+                var path = card.getAttribute('data-path');
+                var isVideo = card.getAttribute('data-is-video') === 'true';
+                var wrapper = card.querySelector('.thumb-wrapper');
+
+                if (isVideo) {
+                    wrapper.innerHTML = '<video src=\"/raw/' + path + '\" controls autoplay muted loop playsinline style=\"max-width:100%;max-height:85vh;display:block;\"></video>';
+                } else {
+                    var img = wrapper.querySelector('img');
+                    if (img) img.src = '/raw/' + path;
+                }
+                observer.unobserve(card);
+            });
+        }, { rootMargin: '200px' });
+
+        document.querySelectorAll('.image-card').forEach(function(card) {
+            observer.observe(card);
+        });
+        window._largeObserver = observer;
+    }
+
+    function loadAllNotes() {
+        document.querySelectorAll('.image-card').forEach(function(card) {
+            var path = card.getAttribute('data-path');
+            var noteEl = card.querySelector('.card-note');
+            if (!path || !noteEl || noteEl.textContent) return;
+            fetch('/api/note/' + path)
+                .then(function(r) { return r.json(); })
+                .then(function(data) { if (data.text) noteEl.textContent = data.text; });
+        });
+    }
+    document.addEventListener('DOMContentLoaded', function() {
+        setViewMode(_viewMode);
+    });
+
+    </script>
+</body>
+</html>

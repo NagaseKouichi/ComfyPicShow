@@ -1,0 +1,8 @@
+__pycache__
+*.pyc
+cache/
+images/
+data/
+.git
+venv
+*.md
