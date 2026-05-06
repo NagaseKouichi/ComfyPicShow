@@ -25,7 +25,13 @@
             <button type="submit">搜索</button>
         </form>
         <button class="new-list-btn" onclick="showNewListInput()" title="新建列表">+ 新建列表</button>
-        <button class="cleanup-btn" onclick="runCleanup()" title="清理已删除文件的缓存数据">🧹 清理</button>
+        <div class="manage-wrapper">
+            <button class="manage-btn" onclick="toggleManageMenu()" title="管理">⚙</button>
+            <div class="manage-dropdown" id="manage-dropdown" style="display:none">
+                <button class="manage-item" onclick="startScanAll()">分析所有图片/视频</button>
+                <button class="manage-item" onclick="runCleanup()">清理已删文件缓存</button>
+            </div>
+        </div>
     </header>
 
     <main>
@@ -40,8 +46,14 @@
 
         {% if dirs %}
         <section class="dir-section">
-            <h2>目录</h2>
-            <div class="dir-grid">
+            <div class="section-top">
+                <h2>目录 <span class="count">({{ dir_count }})</span></h2>
+                <div class="section-top-right">
+                    <button class="dir-expand-btn" id="dir-expand-btn" style="display:none" onclick="toggleDirs()">展开 ▾</button>
+                    {% set prefix = 'dir_' %}{% include "_sort_controls.html" %}{% set prefix = '' %}
+                </div>
+            </div>
+            <div class="dir-grid" id="dir-grid">
                 {% for d in dirs %}
                 <a href="/browse/{{ d.path }}" class="dir-card">
                     <div class="dir-icon">📁</div>
@@ -536,9 +548,8 @@
 
     function runCleanup() {
         if (!confirm('清理所有已删除文件的缓存数据？（包括缩略图、元数据缓存、收藏、备注、列表）')) return;
-        var btn = document.querySelector('.cleanup-btn');
-        btn.textContent = '清理中...';
-        btn.disabled = true;
+        closeManageMenu();
+        showToast('清理中...');
         fetch('/api/cleanup', { method: 'POST' })
             .then(function(r) { return r.json(); })
             .then(function(data) {
@@ -550,14 +561,42 @@
                 if (data.lists) parts.push('列表项: ' + data.lists);
                 if (data.index) parts.push('文件索引: 已重建');
                 showToast(parts.length ? '已清理: ' + parts.join(', ') : '无需清理');
-                btn.textContent = '🧹 清理';
-                btn.disabled = false;
                 loadCustomLists();
             })
             .catch(function() {
                 showToast('清理失败');
-                btn.textContent = '🧹 清理';
-                btn.disabled = false;
+            });
+    }
+
+    function toggleManageMenu() {
+        var menu = document.getElementById('manage-dropdown');
+        if (!menu) return;
+        menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+    }
+
+    function closeManageMenu() {
+        var menu = document.getElementById('manage-dropdown');
+        if (menu) menu.style.display = 'none';
+    }
+
+    document.addEventListener('click', function(e) {
+        var wrapper = document.querySelector('.manage-wrapper');
+        if (wrapper && !wrapper.contains(e.target)) {
+            closeManageMenu();
+        }
+    });
+
+    function startScanAll() {
+        closeManageMenu();
+        if (!confirm('确认要分析所有图片/视频？这将获取所有图片/视频的提示词，可能会比较耗时')) return;
+        showToast('开始扫描所有图片/视频...');
+        fetch('/api/scan-all', { method: 'POST' })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                showToast('扫描完成，共处理 ' + data.scanned + ' 个文件');
+            })
+            .catch(function() {
+                showToast('扫描失败');
             });
     }
 
@@ -612,6 +651,37 @@
             loadCustomLists();
         });
     }
+
+    // --- Directory collapse/expand ---
+    function initDirCollapse() {
+        var grid = document.getElementById('dir-grid');
+        if (!grid) return;
+        var cards = grid.querySelectorAll('.dir-card');
+        if (cards.length < 3) return;
+
+        // Detect row count by tracking unique offsetTop values
+        var rows = [];
+        for (var i = 0; i < cards.length; i++) {
+            var top = cards[i].offsetTop;
+            if (rows.indexOf(top) === -1) rows.push(top);
+            if (rows.length > 2) {
+                grid.classList.add('collapsed');
+                var btn = document.getElementById('dir-expand-btn');
+                if (btn) btn.style.display = '';
+                return;
+            }
+        }
+    }
+
+    function toggleDirs() {
+        var grid = document.getElementById('dir-grid');
+        var btn = document.getElementById('dir-expand-btn');
+        if (!grid || !btn) return;
+        var collapsed = grid.classList.toggle('collapsed');
+        btn.textContent = collapsed ? '展开 ▾' : '收起 ▴';
+    }
+
+    initDirCollapse();
     </script>
 </body>
 </html>

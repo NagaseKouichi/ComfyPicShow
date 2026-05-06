@@ -85,20 +85,59 @@ header h1 a {
     border-color: #7eb8da;
 }
 
-.cleanup-btn {
-    padding: 6px 14px;
+.manage-wrapper {
+    position: relative;
+}
+
+.manage-btn {
+    padding: 6px 12px;
     border: 1px dashed #555;
     border-radius: 6px;
     background: transparent;
     color: #888;
-    font-size: 0.85rem;
+    font-size: 1.1rem;
     cursor: pointer;
     white-space: nowrap;
     transition: color 0.15s, border-color 0.15s;
+    line-height: 1;
 }
-.cleanup-btn:hover {
+.manage-btn:hover {
     color: #e0e0e0;
-    border-color: #e94560;
+    border-color: #7eb8da;
+}
+
+.manage-dropdown {
+    position: absolute;
+    right: 0;
+    top: 100%;
+    margin-top: 4px;
+    background: #16213e;
+    border: 1px solid #2a5a9b;
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    z-index: 100;
+    min-width: 180px;
+    overflow: hidden;
+}
+
+.manage-item {
+    display: block;
+    width: 100%;
+    padding: 10px 16px;
+    border: none;
+    background: transparent;
+    color: #ccc;
+    font-size: 0.85rem;
+    cursor: pointer;
+    text-align: left;
+    white-space: nowrap;
+    transition: background 0.15s;
+}
+.manage-item:hover {
+    background: #1a3a6b;
+}
+.manage-item + .manage-item {
+    border-top: 1px solid #1a3a6b;
 }
 
 .custom-lists-section {
@@ -207,6 +246,55 @@ header h1 a {
 }
 .list-delete-btn:hover {
     opacity: 1;
+}
+
+.list-edit-btn {
+    font-size: 0.9rem;
+    cursor: pointer;
+    opacity: 0.4;
+    transition: opacity 0.15s;
+    margin-left: 6px;
+}
+.list-edit-btn:hover {
+    opacity: 1;
+}
+
+#list-title-input {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+#list-title-edit {
+    background: #0f1a2e;
+    border: 1px solid #2a5a9b;
+    border-radius: 4px;
+    color: #e0e0e0;
+    padding: 2px 8px;
+    font-size: 1.2rem;
+    font-weight: bold;
+    width: 200px;
+}
+.list-title-ok,
+.list-title-cancel {
+    padding: 3px 10px;
+    border: none;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    cursor: pointer;
+}
+.list-title-ok {
+    background: #2a5a9b;
+    color: #fff;
+}
+.list-title-ok:hover {
+    background: #3a6abf;
+}
+.list-title-cancel {
+    background: #333;
+    color: #ccc;
+}
+.list-title-cancel:hover {
+    background: #555;
 }
 .list-empty-hint {
     color: #666;
@@ -494,6 +582,25 @@ section h2 .count {
     text-align: center;
     word-break: break-all;
     color: #ccc;
+}
+
+.dir-grid.collapsed {
+    max-height: 210px;
+    overflow: hidden;
+}
+
+.dir-expand-btn {
+    background: #1a3a6b;
+    border: 1px solid #2a5a9b;
+    color: #ccc;
+    padding: 4px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    white-space: nowrap;
+}
+.dir-expand-btn:hover {
+    background: #2a5a9b;
 }
 
 /* Image grid */

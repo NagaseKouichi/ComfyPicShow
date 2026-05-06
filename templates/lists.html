@@ -25,7 +25,17 @@
         {% if images %}
         <section class="image-section">
             <div class="section-top">
-                <h2>{{ list_name }} <span class="count">({{ total }})</span> <span class="list-delete-btn" onclick="deleteCurrentList()" title="删除此列表">🗑</span></h2>
+                <h2>
+                    <span id="list-title-text">{{ list_name }}</span>
+                    <span id="list-title-input" style="display:none">
+                        <input type="text" id="list-title-edit" value="{{ list_name }}" onkeydown="if(event.key==='Enter')saveListTitle()" onblur="saveListTitle()">
+                        <button class="list-title-ok" onclick="saveListTitle()">确定</button>
+                        <button class="list-title-cancel" onclick="cancelListTitle()">取消</button>
+                    </span>
+                    <span class="count">({{ total }})</span>
+                    <span class="list-edit-btn" onclick="startEditListTitle()" title="编辑列表名称">✏️</span>
+                    <span class="list-delete-btn" onclick="deleteCurrentList()" title="删除此列表">🗑</span>
+                </h2>
                 <div class="section-top-right">
                     <div class="view-toggle">
                         <button class="view-btn active" data-mode="grid" onclick="setViewMode('grid')" title="缩略图模式">▦</button>
@@ -291,6 +301,40 @@
         if (!confirm('确定删除该列表吗？')) return;
         fetch('/api/lists/{{ list_id }}', { method: 'DELETE' })
             .then(function() { location.href = '/'; });
+    }
+
+    function startEditListTitle() {
+        document.getElementById('list-title-text').style.display = 'none';
+        document.getElementById('list-title-input').style.display = '';
+        var input = document.getElementById('list-title-edit');
+        input.focus();
+        input.select();
+    }
+
+    function saveListTitle() {
+        var input = document.getElementById('list-title-edit');
+        var name = input.value.trim();
+        if (!name) return;
+        fetch('/api/lists/{{ list_id }}/rename', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name: name})
+        }).then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (data.name) {
+                document.getElementById('list-title-text').textContent = data.name;
+                document.title = data.name + ' - ComfyPicShow';
+                var crumb = document.querySelector('.breadcrumbs .current');
+                if (crumb) crumb.textContent = data.name;
+            }
+            document.getElementById('list-title-text').style.display = '';
+            document.getElementById('list-title-input').style.display = 'none';
+        });
+    }
+
+    function cancelListTitle() {
+        document.getElementById('list-title-text').style.display = '';
+        document.getElementById('list-title-input').style.display = 'none';
     }
 
     // --- Drag-and-drop reorder ---

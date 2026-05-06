@@ -570,11 +570,15 @@ def _save_file_index(index):
         pass
 
 
-def scan_directory(rel_path="", sort="name", order="asc"):
+def scan_directory(rel_path="", sort="name", order="asc", dir_sort=None, dir_order=None):
     """Scan a directory and return subdirectories and image files.
 
     Uses a file index cache to avoid re-scanning unchanged directories.
     """
+    if dir_sort is None:
+        dir_sort = sort
+    if dir_order is None:
+        dir_order = order
     abs_path = get_safe_path(rel_path)
     if not os.path.isdir(abs_path):
         abort(404)
@@ -599,7 +603,7 @@ def scan_directory(rel_path="", sort="name", order="asc"):
 
         for entry in entries:
             if entry.is_dir():
-                dirs.append({"name": entry.name, "path": os.path.join(rel_path, entry.name)})
+                dirs.append({"name": entry.name, "path": os.path.join(rel_path, entry.name), "mtime": entry.stat().st_mtime})
             elif entry.is_file() and is_media_file(entry.name):
                 img_rel = os.path.join(rel_path, entry.name) if rel_path else entry.name
                 files.append({
@@ -632,6 +636,13 @@ def scan_directory(rel_path="", sort="name", order="asc"):
     else:
         images.sort(key=lambda x: x["name"].lower(), reverse=reverse)
 
+    # Sort dirs
+    dir_reverse = (dir_order == "desc")
+    if dir_sort == "date":
+        dirs.sort(key=lambda x: x["mtime"], reverse=dir_reverse)
+    else:
+        dirs.sort(key=lambda x: x["name"].lower(), reverse=dir_reverse)
+
     # Build breadcrumbs
     crumbs = [{"name": "Home", "path": ""}]
     if rel_path:
@@ -641,7 +652,7 @@ def scan_directory(rel_path="", sort="name", order="asc"):
             accum = os.path.join(accum, part) if accum else part
             crumbs.append({"name": part, "path": accum})
 
-    return {"dirs": dirs, "images": images, "breadcrumbs": crumbs, "current_path": rel_path, "total": len(images)}
+    return {"dirs": dirs, "images": images, "breadcrumbs": crumbs, "current_path": rel_path, "total": len(images), "dir_count": len(dirs)}
 
 
 def paginate_images(images, page=1, per_page=30):
@@ -891,24 +902,30 @@ PER_PAGE = 30
 def index():
     sort = request.args.get("sort", "name")
     order = request.args.get("order", "asc")
+    dir_sort = request.args.get("dir_sort", sort)
+    dir_order = request.args.get("dir_order", order)
     page = request.args.get("page", 1, type=int)
     is_ajax = request.args.get("ajax", "0") == "1"
-    return browse("", sort, order, page, is_ajax)
+    return browse("", sort, order, page, is_ajax, dir_sort, dir_order)
 
 
 @app.route("/browse/")
 @app.route("/browse/<path:subpath>")
-def browse(subpath="", sort=None, order=None, page=None, is_ajax=None):
+def browse(subpath="", sort=None, order=None, page=None, is_ajax=None, dir_sort=None, dir_order=None):
     if sort is None:
         sort = request.args.get("sort", "name")
     if order is None:
         order = request.args.get("order", "asc")
+    if dir_sort is None:
+        dir_sort = request.args.get("dir_sort", sort)
+    if dir_order is None:
+        dir_order = request.args.get("dir_order", order)
     if page is None:
         page = request.args.get("page", 1, type=int)
     if is_ajax is None:
         is_ajax = request.args.get("ajax", "0") == "1"
 
-    data = scan_directory(subpath, sort=sort, order=order)
+    data = scan_directory(subpath, sort=sort, order=order, dir_sort=dir_sort, dir_order=dir_order)
     all_images = data["images"]
     page_images, total, has_more = paginate_images(all_images, page=page, per_page=PER_PAGE)
 
@@ -918,6 +935,8 @@ def browse(subpath="", sort=None, order=None, page=None, is_ajax=None):
     data["images"] = page_images
     data["sort"] = sort
     data["order"] = order
+    data["dir_sort"] = dir_sort
+    data["dir_order"] = dir_order
     data["page"] = page
     data["has_more"] = has_more
     data["total"] = total
@@ -1190,6 +1209,21 @@ def delete_list(lid):
     return jsonify({"deleted": True})
 
 
+@app.route("/api/lists/<lid>/rename", methods=["POST"])
+def rename_list(lid):
+    data = request.get_json(silent=True) or {}
+    name = data.get("name", "").strip()
+    if not name:
+        return jsonify({"error": "Name required"}), 400
+    lists_data = load_lists()
+    lst = lists_data.get(lid)
+    if not lst:
+        return jsonify({"error": "List not found"}), 404
+    lst["name"] = name
+    save_lists(lists_data)
+    return jsonify({"id": lid, "name": name})
+
+
 @app.route("/lists/<lid>")
 def view_list(lid):
     lists_data = load_lists()
@@ -1416,6 +1450,30 @@ def cleanup_orphaned_data():
         save_lists(lists_data)
 
     return jsonify(result)
+
+
+@app.route("/api/scan-all", methods=["POST"])
+def scan_all():
+    """Walk all media files and generate thumbnails + extract metadata."""
+    count = 0
+    for root, dirs, files in os.walk(IMAGE_ROOT_DIR):
+        for f in files:
+            if not is_media_file(f):
+                continue
+            abs_path = os.path.join(root, f)
+            rel_path = os.path.relpath(abs_path, IMAGE_ROOT_DIR)
+
+            # Generate thumbnail
+            if is_video_file(abs_path):
+                generate_video_thumbnail(abs_path)
+            else:
+                generate_thumbnail(abs_path)
+
+            # Extract metadata into cache
+            _get_cached_prompt_text(abs_path)
+            count += 1
+
+    return jsonify({"scanned": count})
 
 
 if __name__ == "__main__":

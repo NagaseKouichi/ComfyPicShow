@@ -1,18 +1,29 @@
 <div class="sort-controls">
     <span class="sort-label">排序:</span>
+    {% set pfx = prefix or '' %}
+
+    {% if pfx == 'dir_' %}
+        {% set cur_sort = (dir_sort or 'name') %}
+        {% set cur_order = (dir_order or 'asc') %}
+        {% set other_params = '&sort=' + (sort or 'name') + '&order=' + (order or 'asc') %}
+    {% else %}
+        {% set cur_sort = (sort or 'name') %}
+        {% set cur_order = (order or 'asc') %}
+        {% set other_params = '&dir_sort=' + (dir_sort or 'name') + '&dir_order=' + (dir_order or 'asc') %}
+    {% endif %}
+
+    {% set sk = pfx + 'sort' %}
+    {% set ok = pfx + 'order' %}
     {% set base_url = request.path %}
     {% set q_param = ("&q=" + query) if query else "" %}
 
-    {% set name_asc_url = base_url + "?sort=name&order=asc" + q_param %}
-    {% set name_desc_url = base_url + "?sort=name&order=desc" + q_param %}
-    {% set date_asc_url = base_url + "?sort=date&order=asc" + q_param %}
-    {% set date_desc_url = base_url + "?sort=date&order=desc" + q_param %}
+    {% set name_asc = base_url + '?' + sk + '=name&' + ok + '=asc' + q_param + other_params %}
+    {% set name_desc = base_url + '?' + sk + '=name&' + ok + '=desc' + q_param + other_params %}
+    {% set date_asc = base_url + '?' + sk + '=date&' + ok + '=asc' + q_param + other_params %}
+    {% set date_desc = base_url + '?' + sk + '=date&' + ok + '=desc' + q_param + other_params %}
 
-    {% set cur_sort = sort or "name" %}
-    {% set cur_order = order or "asc" %}
-
-    <a href="{{ name_asc_url }}" class="sort-btn {% if cur_sort == 'name' and cur_order == 'asc' %}active{% endif %}" title="文件名 A→Z">文件名 ▲</a>
-    <a href="{{ name_desc_url }}" class="sort-btn {% if cur_sort == 'name' and cur_order == 'desc' %}active{% endif %}" title="文件名 Z→A">文件名 ▼</a>
-    <a href="{{ date_asc_url }}" class="sort-btn {% if cur_sort == 'date' and cur_order == 'asc' %}active{% endif %}" title="时间 旧→新">时间 ▲</a>
-    <a href="{{ date_desc_url }}" class="sort-btn {% if cur_sort == 'date' and cur_order == 'desc' %}active{% endif %}" title="时间 新→旧">时间 ▼</a>
+    <a href="{{ name_asc }}" class="sort-btn {% if cur_sort == 'name' and cur_order == 'asc' %}active{% endif %}" title="文件名 A→Z">文件名 ▲</a>
+    <a href="{{ name_desc }}" class="sort-btn {% if cur_sort == 'name' and cur_order == 'desc' %}active{% endif %}" title="文件名 Z→A">文件名 ▼</a>
+    <a href="{{ date_asc }}" class="sort-btn {% if cur_sort == 'date' and cur_order == 'asc' %}active{% endif %}" title="时间 旧→新">时间 ▲</a>
+    <a href="{{ date_desc }}" class="sort-btn {% if cur_sort == 'date' and cur_order == 'desc' %}active{% endif %}" title="时间 新→旧">时间 ▼</a>
 </div>
