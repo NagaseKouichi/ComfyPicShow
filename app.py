@@ -592,7 +592,13 @@ def scan_directory(rel_path="", sort="name", order="asc", dir_sort=None, dir_ord
     if cached and cached.get("_mtime") == dir_mtime:
         dirs = cached.get("dirs", [])
         files = cached.get("files", [])
+        # Check for old cache format missing mtime on dirs
+        if dirs and "mtime" not in dirs[0]:
+            cached = None
     else:
+        cached = None
+
+    if cached is None:
         # Re-scan directory
         dirs = []
         files = []
