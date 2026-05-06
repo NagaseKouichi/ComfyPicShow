@@ -979,6 +979,28 @@ def fragment_detail(imgpath):
         metadata = extract_comfyui_metadata(abs_path)
         is_video = False
 
+    # Write prompt text to metadata cache for search
+    if metadata and "parsed" in metadata:
+        p = metadata["parsed"]
+        positive = p.get("positive", "")
+        negative = p.get("negative", "")
+    elif metadata and "prompt" in metadata and isinstance(metadata["prompt"], dict):
+        raw = metadata["prompt"]
+        if not _is_comfyui_node_format(raw):
+            positive = raw.get("positive", "") or raw.get("pos", "") or raw.get("Positive", "")
+            negative = raw.get("negative", "") or raw.get("neg", "") or raw.get("Negative", "")
+        else:
+            positive = ""
+            negative = ""
+    else:
+        positive = ""
+        negative = ""
+
+    if positive or negative:
+        cache = _load_metadata_cache()
+        cache[imgpath] = {"_mtime": os.path.getmtime(abs_path), "positive": positive, "negative": negative}
+        _save_metadata_cache(cache)
+
     return render_template(
         "_detail_panel.html",
         image=info,

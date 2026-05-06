@@ -79,15 +79,19 @@
     var originalUrl = location.pathname + location.search;
     var _modalPushed = false;
 
-    function openModal(imgPath) {
+    function openModal(imgPath, fromNav) {
         if (currentImgPath === imgPath && modal.classList.contains('active')) return;
         if (!currentImgPath) originalUrl = location.pathname + location.search;
         currentImgPath = imgPath;
         modal.classList.add('active');
         document.body.style.overflow = 'hidden';
         modalBody.innerHTML = '<div class="modal-spinner"></div>';
-        history.pushState({modal: imgPath}, '', '/#/image/' + imgPath);
-        _modalPushed = true;
+        if (fromNav) {
+            history.replaceState({modal: imgPath}, '', '/#/image/' + imgPath);
+        } else {
+            history.pushState({modal: imgPath}, '', '/#/image/' + imgPath);
+            _modalPushed = true;
+        }
         fetch('/fragment/detail/' + imgPath)
             .then(function(res) { if (!res.ok) throw new Error('Not found'); return res.text(); })
             .then(function(html) {
@@ -177,7 +181,7 @@
         var idx = _imageList.indexOf(currentImgPath);
         if (idx < 0) return;
         var newIdx = idx + direction;
-        if (newIdx >= 0 && newIdx < _imageList.length) openModal(_imageList[newIdx]);
+        if (newIdx >= 0 && newIdx < _imageList.length) openModal(_imageList[newIdx], true);
     }
 
     function copyText(text) {
