@@ -21,7 +21,7 @@
             {% endfor %}
         </nav>
         <form class="search-form" action="/search" method="get">
-            <input type="text" name="q" placeholder="搜索提示词或文件名..." value="{{ query or '' }}">
+            <input type="text" name="q" placeholder="搜索提示词..." value="{{ query or '' }}">
             <button type="submit">搜索</button>
         </form>
         <button class="new-list-btn" onclick="showNewListInput()" title="新建列表">+ 新建列表</button>

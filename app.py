@@ -791,68 +791,83 @@ def _get_cached_prompt_text(abs_path):
 
 
 def search_images(query):
-    """Search all images for prompts matching the query. Returns list of results."""
+    """Search all images for prompts matching the query.
+
+    Only searches against the pre-built metadata cache — does NOT trigger
+    new metadata extraction during search. Files without cached metadata
+    are matched by filename only.
+    """
     if not query or len(query.strip()) < 1:
         return []
 
     query_lower = query.strip().lower()
+    meta_cache = _load_metadata_cache()
+    file_index = _load_file_index()
     results = []
-    cache = _load_metadata_cache()
 
-    for root, dirs, files in os.walk(IMAGE_ROOT_DIR):
-        dirs.sort()
-        for f in sorted(files):
-            if not is_media_file(f):
-                continue
+    # Collect all known files from file index
+    all_files = []
+    for cache_key, entry in file_index.items():
+        for f in entry.get("files", []):
+            all_files.append(f)
 
-            abs_path = os.path.join(root, f)
-            rel_path = os.path.relpath(abs_path, IMAGE_ROOT_DIR)
+    # If file index is empty, fall back to scanning (first-use scenario)
+    if not all_files:
+        for root, dirs, files in os.walk(IMAGE_ROOT_DIR):
+            dirs.sort()
+            for f in sorted(files):
+                if is_media_file(f):
+                    rel_path = os.path.relpath(os.path.join(root, f), IMAGE_ROOT_DIR)
+                    all_files.append({"name": f, "path": rel_path, "is_video": is_video_file(f)})
 
-            # Check filename match
-            filename_match = query_lower in f.lower()
+    for f in all_files:
+        rel_path = f["path"]
+        abs_path = os.path.join(IMAGE_ROOT_DIR, rel_path)
+        if not os.path.isfile(abs_path):
+            continue
 
-            # Check prompt match via cached metadata
-            prompt_match = False
-            matched_text = ""
+        # Check prompt from cache only (no extraction)
+        prompt_match = False
+        matched_text = ""
+        cached = meta_cache.get(rel_path, {})
+        positive = cached.get("positive", "")
+        negative = cached.get("negative", "")
 
-            positive, negative = _get_cached_prompt_text(abs_path)
+        if positive and query_lower in positive.lower():
+            prompt_match = True
+            idx = positive.lower().index(query_lower)
+            start = max(0, idx - 60)
+            end = min(len(positive), idx + len(query) + 60)
+            snippet = positive[start:end]
+            if start > 0:
+                snippet = "..." + snippet
+            if end < len(positive):
+                snippet = snippet + "..."
+            matched_text = snippet
 
-            if positive and query_lower in positive.lower():
-                prompt_match = True
-                idx = positive.lower().index(query_lower)
-                start = max(0, idx - 60)
-                end = min(len(positive), idx + len(query) + 60)
-                snippet = positive[start:end]
-                if start > 0:
-                    snippet = "..." + snippet
-                if end < len(positive):
-                    snippet = snippet + "..."
-                matched_text = snippet
+        if not prompt_match and negative and query_lower in negative.lower():
+            prompt_match = True
+            idx = negative.lower().index(query_lower)
+            start = max(0, idx - 60)
+            end = min(len(negative), idx + len(query) + 60)
+            snippet = negative[start:end]
+            if start > 0:
+                snippet = "..." + snippet
+            if end < len(negative):
+                snippet = snippet + "..."
+            matched_text = snippet
 
-            if not prompt_match and negative and query_lower in negative.lower():
-                prompt_match = True
-                idx = negative.lower().index(query_lower)
-                start = max(0, idx - 60)
-                end = min(len(negative), idx + len(query) + 60)
-                snippet = negative[start:end]
-                if start > 0:
-                    snippet = "..." + snippet
-                if end < len(negative):
-                    snippet = snippet + "..."
-                matched_text = snippet
-
-            if filename_match or prompt_match:
-                thumb_path = get_thumbnail_path(abs_path)
-                results.append({
-                    "name": f,
-                    "path": rel_path,
-                    "has_thumbnail": os.path.exists(thumb_path),
-                    "filename_match": filename_match,
-                    "prompt_match": prompt_match,
-                    "matched_text": matched_text,
-                    "mtime": os.path.getmtime(abs_path),
-                    "is_video": is_video_file(f),
-                })
+        if prompt_match:
+            thumb_path = get_thumbnail_path(abs_path)
+            results.append({
+                "name": f["name"],
+                "path": rel_path,
+                "has_thumbnail": os.path.exists(thumb_path),
+                "prompt_match": True,
+                "matched_text": matched_text,
+                "mtime": os.path.getmtime(abs_path),
+                "is_video": f.get("is_video", False),
+            })
 
     return results
 
@@ -1006,7 +1021,34 @@ def raw_image(imgpath):
     abs_path = get_safe_path(imgpath)
     if not os.path.isfile(abs_path):
         abort(404)
-    return send_file(abs_path)
+
+    file_size = os.path.getsize(abs_path)
+    range_header = request.headers.get("Range")
+
+    if range_header:
+        # Handle Range request for video streaming
+        range_match = re.match(r"bytes=(\d+)-(\d*)", range_header)
+        if range_match:
+            start = int(range_match.group(1))
+            end_str = range_match.group(2)
+            end = int(end_str) - 1 if end_str else file_size - 1
+            end = min(end, file_size - 1)
+            length = end - start + 1
+
+            with open(abs_path, "rb") as f:
+                f.seek(start)
+                data = f.read(length)
+
+            resp = make_response(data, 206)
+            resp.headers["Content-Range"] = f"bytes {start}-{end}/{file_size}"
+            resp.headers["Accept-Ranges"] = "bytes"
+            resp.headers["Content-Length"] = str(length)
+            resp.headers["Content-Type"] = "application/octet-stream"
+            return resp
+
+    resp = make_response(send_file(abs_path))
+    resp.headers["Accept-Ranges"] = "bytes"
+    return resp
 
 
 # --- Favorites routes ---
