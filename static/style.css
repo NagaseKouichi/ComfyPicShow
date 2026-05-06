@@ -142,6 +142,19 @@ header h1 a {
     opacity: 1;
 }
 
+.delete-file-btn {
+    font-size: 1rem;
+    cursor: pointer;
+    user-select: none;
+    opacity: 0.5;
+    margin-left: 10px;
+    transition: opacity 0.15s, color 0.15s;
+}
+.delete-file-btn:hover {
+    opacity: 1;
+    color: #e94560;
+}
+
 .list-selector {
     margin-top: 8px;
     background: #0f0f1a;

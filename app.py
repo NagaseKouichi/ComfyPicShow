@@ -1275,6 +1275,63 @@ def lists_for_item(imgpath):
     return jsonify(result)
 
 
+# --- Delete file ---
+
+@app.route("/api/file/<path:imgpath>", methods=["DELETE"])
+def delete_file(imgpath):
+    abs_path = get_safe_path(imgpath)
+    if not os.path.isfile(abs_path):
+        return jsonify({"error": "Not found"}), 404
+
+    try:
+        os.remove(abs_path)
+    except OSError as e:
+        return jsonify({"error": str(e)}), 500
+
+    # Clean related cache data
+    thumb_path = get_thumbnail_path(abs_path)
+    if os.path.exists(thumb_path):
+        try:
+            os.remove(thumb_path)
+        except OSError:
+            pass
+
+    # Metadata cache
+    cache = _load_metadata_cache()
+    if imgpath in cache:
+        del cache[imgpath]
+        _save_metadata_cache(cache)
+
+    # Favorites
+    favs = load_favorites()
+    if imgpath in favs:
+        favs.remove(imgpath)
+        save_favorites(favs)
+
+    # Notes
+    notes = load_notes()
+    if imgpath in notes:
+        del notes[imgpath]
+        save_notes(notes)
+
+    # Lists
+    lists_data = load_lists()
+    changed = False
+    for lst in lists_data.values():
+        if imgpath in lst.get("items", []):
+            lst["items"].remove(imgpath)
+            changed = True
+    if changed:
+        save_lists(lists_data)
+
+    # File index (invalidate)
+    index = _load_file_index()
+    index.clear()
+    _save_file_index(index)
+
+    return jsonify({"deleted": True, "path": imgpath})
+
+
 # --- Cleanup ---
 
 @app.route("/api/cleanup", methods=["POST"])
