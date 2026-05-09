@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ chapter.title }} - {{ novel.title }} - ComfyPicShow</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header>
+        <h1><a href="/">ComfyPicShow</a></h1>
+        <a href="/novels" class="fav-nav-link" title="小说">📖 小说</a>
+        <nav class="breadcrumbs">
+            <a href="/">Home</a>
+            <span class="sep">/</span>
+            <a href="/novels">小说</a>
+            <span class="sep">/</span>
+            <span class="current">{{ novel.title }}</span>
+        </nav>
+        <form class="search-form" action="/search" method="get">
+            <input type="text" name="q" placeholder="搜索提示词或文件名...">
+            <button type="submit">搜索</button>
+        </form>
+    </header>
+
+    <main class="reading-page">
+        <div class="reading-container" id="reading-container">
+            <h1 class="reading-novel-title">{{ novel.title }}</h1>
+            <div class="chapter-section" data-cid="{{ cid }}">
+                <h2 class="reading-chapter-title">{{ chapter.title }}</h2>
+                <div class="reading-content">{{ chapter.content | safe }}</div>
+            </div>
+            <div class="reading-loader" id="reading-loader" style="display:none">加载下一章...</div>
+            <div class="reading-end" id="reading-end" style="display:none">— 已加载全部章节 —</div>
+        </div>
+    </main>
+
+    <script>
+    var _nid = '{{ nid }}';
+    var _loading = false;
+
+    function loadNextChapter(nextId) {
+        if (_loading) return;
+        _loading = true;
+        document.getElementById('reading-loader').style.display = 'block';
+        fetch('/api/novels/' + _nid + '/chapters/' + nextId)
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.error) { _loading = false; return; }
+                var section = document.createElement('div');
+                section.className = 'chapter-section';
+                section.setAttribute('data-cid', nextId);
+                section.innerHTML = '<h2 class="reading-chapter-title">' + data.title + '</h2>' +
+                    '<div class="reading-content">' + data.content + '</div>';
+                var loader = document.getElementById('reading-loader');
+                loader.parentNode.insertBefore(section, loader);
+
+                _loading = false;
+                document.getElementById('reading-loader').style.display = 'none';
+
+                if (data.next_id) {
+                    document.title = data.title + ' - {{ novel.title }} - ComfyPicShow';
+                    checkScroll(data.next_id);
+                } else {
+                    document.getElementById('reading-end').style.display = 'block';
+                }
+            })
+            .catch(function() {
+                _loading = false;
+                document.getElementById('reading-loader').style.display = 'none';
+            });
+    }
+
+    function checkScroll(nextId) {
+        function onScroll() {
+            if (_loading) return;
+            var rect = document.getElementById('reading-loader').getBoundingClientRect();
+            if (rect.top < window.innerHeight + 200) {
+                window.removeEventListener('scroll', onScroll);
+                if (nextId) loadNextChapter(nextId);
+            }
+        }
+        window.addEventListener('scroll', onScroll);
+        // Initial check in case content is short
+        onScroll();
+    }
+
+    {% if next_id %}
+    checkScroll('{{ next_id }}');
+    {% endif %}
+    </script>
+</body>
+</html>

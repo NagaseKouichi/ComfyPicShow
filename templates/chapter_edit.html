@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% if chapter %}编辑{% else %}添加{% endif %}章节 - {{ novel.title }} - ComfyPicShow</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header>
+        <h1><a href="/">ComfyPicShow</a></h1>
+        <a href="/novels" class="fav-nav-link" title="小说">📖 小说</a>
+        <nav class="breadcrumbs">
+            <a href="/">Home</a>
+            <span class="sep">/</span>
+            <a href="/novels">小说</a>
+            <span class="sep">/</span>
+            <span class="current">{{ novel.title }}</span>
+        </nav>
+        <form class="search-form" action="/search" method="get">
+            <input type="text" name="q" placeholder="搜索提示词或文件名...">
+            <button type="submit">搜索</button>
+        </form>
+    </header>
+
+    <main class="editor-page">
+        <div class="editor-container">
+            <div class="editor-header">
+                <h2>{% if chapter %}编辑章节{% else %}添加章节{% endif %}</h2>
+                <span class="editor-novel-title">《{{ novel.title }}》</span>
+            </div>
+
+            <div class="form-group">
+                <label>章节标题</label>
+                <input type="text" id="chapter-title" class="chapter-title-input" value="{{ chapter.title if chapter else '' }}" placeholder="输入章节标题...">
+            </div>
+
+            <div class="form-group">
+                <label>正文</label>
+                <div class="editor-toolbar">
+                    <button type="button" class="toolbar-btn" data-cmd="bold" title="粗体"><b>B</b></button>
+                    <button type="button" class="toolbar-btn" data-cmd="italic" title="斜体"><i>I</i></button>
+                    <button type="button" class="toolbar-btn" data-cmd="underline" title="下划线"><u>U</u></button>
+                    <span class="toolbar-sep"></span>
+                    <button type="button" class="toolbar-btn" data-cmd="formatBlock" data-arg="h3" title="标题">H</button>
+                    <button type="button" class="toolbar-btn" data-cmd="formatBlock" data-arg="p" title="段落">P</button>
+                    <span class="toolbar-sep"></span>
+                    <button type="button" class="toolbar-btn" data-cmd="insertUnorderedList" title="无序列表">•≡</button>
+                    <button type="button" class="toolbar-btn" data-cmd="insertOrderedList" title="有序列表">1.</button>
+                    <span class="toolbar-sep"></span>
+                    <button type="button" class="toolbar-btn" id="btn-insert-img" title="插入图片" onclick="showImagePicker()">🖼</button>
+                    <span class="toolbar-sep"></span>
+                    <button type="button" class="toolbar-btn" data-cmd="undo" title="撤销">↩</button>
+                    <button type="button" class="toolbar-btn" data-cmd="redo" title="重做">↪</button>
+                </div>
+                <div class="editor-body" id="editor-body" contenteditable="true">{{ chapter.content | safe if chapter else '' }}</div>
+            </div>
+
+            <div class="form-actions">
+                <a href="/novels" class="cancel-btn">取消</a>
+                <button class="submit-btn" onclick="saveChapter()">保存</button>
+            </div>
+        </div>
+    </main>
+
+    <!-- Image Picker Modal -->
+    <div id="img-picker-modal" class="modal-overlay">
+        <div class="modal-backdrop"></div>
+        <div class="modal-container">
+            <button class="modal-close" onclick="closeImagePicker()" title="关闭">&times;</button>
+            <div class="modal-body" style="display:flex;align-items:center;justify-content:center;padding:24px">
+                <div class="novel-form">
+                    <h2>插入图片/视频</h2>
+                    <div class="form-group">
+                        <label>预览</label>
+                        <div class="cover-preview" id="img-picker-preview">
+                            <span class="cover-placeholder" id="img-picker-placeholder">选择后预览</span>
+                            <img id="img-picker-preview-img" style="display:none" alt="">
+                            <video id="img-picker-preview-video" style="display:none" muted loop playsinline></video>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>选择文件</label>
+                        <div class="cover-autocomplete">
+                            <input type="text" id="img-picker-input" placeholder="输入路径筛选图片或视频..." autocomplete="off" oninput="filterImgOptions()" onfocus="filterImgOptions()">
+                            <div class="cover-dropdown" id="img-picker-dropdown" style="display:none"></div>
+                        </div>
+                    </div>
+                    <div class="form-actions">
+                        <button class="cancel-btn" onclick="closeImagePicker()">取消</button>
+                        <button class="submit-btn" onclick="insertImage()">插入</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="copy-toast"></div>
+
+    <script>
+    // Toolbar
+    document.querySelectorAll('.toolbar-btn').forEach(function(btn) {
+        if (btn.id === 'btn-insert-img') return;
+        btn.addEventListener('click', function() {
+            var cmd = btn.getAttribute('data-cmd');
+            var arg = btn.getAttribute('data-arg') || null;
+            document.execCommand(cmd, false, arg);
+            document.getElementById('editor-body').focus();
+        });
+    });
+
+    function saveChapter() {
+        var title = document.getElementById('chapter-title').value.trim();
+        if (!title) { showToast('请输入章节标题'); return; }
+        var content = document.getElementById('editor-body').innerHTML.trim();
+        if (content === '<br>' || content === '<br>' || content === '') content = '';
+
+        var body = { title: title, content: content };
+        {% if cid %}
+        body.chapter_id = '{{ cid }}';
+        {% endif %}
+
+        fetch('/api/novels/{{ nid }}/chapters', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(body)
+        }).then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (data.error) { showToast(data.error); return; }
+            showToast('章节已保存');
+            setTimeout(function() {
+                location.href = '/novels/' + '{{ nid }}' + '/chapters/' + data.id;
+            }, 600);
+        });
+    }
+
+    // --- Image Picker ---
+    var _imgList = [];
+    var _imgLoaded = false;
+    var _pickedPath = '';
+    var _savedRange = null;
+
+    function showImagePicker() {
+        // Save current cursor position in the editor
+        var sel = window.getSelection();
+        var editor = document.getElementById('editor-body');
+        if (sel.rangeCount > 0 && editor.contains(sel.anchorNode)) {
+            _savedRange = sel.getRangeAt(0).cloneRange();
+        } else {
+            _savedRange = null;
+        }
+        document.getElementById('img-picker-modal').classList.add('active');
+        document.body.style.overflow = 'hidden';
+        document.getElementById('img-picker-input').value = '';
+        document.getElementById('img-picker-dropdown').style.display = 'none';
+        document.getElementById('img-picker-placeholder').style.display = '';
+        document.getElementById('img-picker-preview-img').style.display = 'none';
+        document.getElementById('img-picker-preview-video').style.display = 'none';
+        document.getElementById('img-picker-preview-video').removeAttribute('src');
+        _pickedPath = '';
+        if (!_imgLoaded) loadImgData();
+    }
+
+    function closeImagePicker() {
+        document.getElementById('img-picker-modal').classList.remove('active');
+        document.body.style.overflow = '';
+        document.getElementById('img-picker-dropdown').style.display = 'none';
+    }
+
+    function loadImgData() {
+        fetch('/api/images/all')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                _imgList = data;
+                _imgLoaded = true;
+            });
+    }
+
+    function filterImgOptions() {
+        var input = document.getElementById('img-picker-input');
+        var dropdown = document.getElementById('img-picker-dropdown');
+        var filter = input.value.toLowerCase();
+        var matches = _imgList.filter(function(img) {
+            return img.path.toLowerCase().indexOf(filter) !== -1 || img.name.toLowerCase().indexOf(filter) !== -1;
+        });
+        if (matches.length === 0) {
+            dropdown.style.display = 'none';
+            return;
+        }
+        var html = '';
+        matches.slice(0, 20).forEach(function(img) {
+            var badge = img.is_video ? ' <span style="font-size:.65rem;color:var(--accent-dim)">▶</span>' : '';
+            html += '<div class="cover-option' + (img.path === _pickedPath ? ' selected' : '') + '" onclick="pickImage(\'' + img.path.replace(/'/g, '') + '\', this)">' +
+                '<img src="/thumbnail/' + img.path + '" alt="" onerror="this.remove()">' +
+                '<span class="cover-option-path">' + img.path + badge + '</span>' +
+                '</div>';
+        });
+        dropdown.innerHTML = html;
+        dropdown.style.display = 'block';
+    }
+
+    function pickImage(path, el) {
+        _pickedPath = path;
+        document.getElementById('img-picker-input').value = path;
+        document.getElementById('img-picker-dropdown').style.display = 'none';
+        var prev = document.querySelector('#img-picker-dropdown .cover-option.selected');
+        if (prev) prev.classList.remove('selected');
+        if (el) el.classList.add('selected');
+
+        // Show preview — check if video
+        var isVideo = /\.(mp4|webm|mkv|avi|mov)$/i.test(path);
+        var placeholder = document.getElementById('img-picker-placeholder');
+        var previewImg = document.getElementById('img-picker-preview-img');
+        var previewVid = document.getElementById('img-picker-preview-video');
+        placeholder.style.display = 'none';
+        if (isVideo) {
+            previewImg.style.display = 'none';
+            previewVid.style.display = 'block';
+            previewVid.src = '/raw/' + path;
+            previewVid.load();
+        } else {
+            previewVid.style.display = 'none';
+            previewVid.removeAttribute('src');
+            previewImg.style.display = 'block';
+            previewImg.src = '/thumbnail/' + path;
+        }
+    }
+
+    function insertImage() {
+        if (!_pickedPath) { showToast('请先选择一个文件'); return; }
+        var editor = document.getElementById('editor-body');
+        editor.focus();
+        if (_savedRange) {
+            var sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(_savedRange);
+        }
+        var isVideo = /\.(mp4|webm|mkv|avi|mov)$/i.test(_pickedPath);
+        var tag = isVideo
+            ? '<video src="/raw/' + _pickedPath + '" autoplay muted loop playsinline controls style="max-width:100%" class="content-video"></video>'
+            : '<img src="/raw/' + _pickedPath + '" style="max-width:100%">';
+        document.execCommand('insertHTML', false, tag + '<br>');
+        _savedRange = null;
+        closeImagePicker();
+    }
+
+    // Close image picker on backdrop click
+    var imgPickerModal = document.getElementById('img-picker-modal');
+    imgPickerModal.querySelector('.modal-backdrop').addEventListener('click', closeImagePicker);
+    imgPickerModal.querySelector('.modal-container').addEventListener('click', function(e) {
+        var t = e.target;
+        while (t) {
+            if (t.classList && (t.classList.contains('novel-form') || t.classList.contains('cover-dropdown') || t.classList.contains('modal-close'))) return;
+            t = t.parentElement;
+        }
+        closeImagePicker();
+    });
+
+    document.addEventListener('click', function(e) {
+        var wrap = document.querySelector('#img-picker-modal .cover-autocomplete');
+        if (wrap && !wrap.contains(e.target)) {
+            document.getElementById('img-picker-dropdown').style.display = 'none';
+        }
+    });
+
+    function showToast(msg) {
+        var t = document.getElementById('copy-toast');
+        if (!t) { t = document.createElement('div'); t.id = 'copy-toast'; document.body.appendChild(t); }
+        t.textContent = msg;
+        t.classList.add('show');
+        clearTimeout(t._timer);
+        t._timer = setTimeout(function() { t.classList.remove('show'); }, 1500);
+    }
+    </script>
+</body>
+</html>

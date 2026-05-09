@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>小说 - ComfyPicShow</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header>
+        <h1><a href="/">ComfyPicShow</a></h1>
+        <a href="/novels" class="fav-nav-link active" title="小说">📖 小说</a>
+        <nav class="breadcrumbs">
+            <a href="/">Home</a>
+            <span class="sep">/</span>
+            <span class="current">小说</span>
+        </nav>
+        <form class="search-form" action="/search" method="get">
+            <input type="text" name="q" placeholder="搜索提示词或文件名...">
+            <button type="submit">搜索</button>
+        </form>
+        <button class="new-list-btn" onclick="showCreateNovel()">+ 创建小说</button>
+    </header>
+
+    <main>
+        <section class="novel-section">
+            <div class="section-top">
+                <h2>小说 <span class="count" id="novel-count"></span></h2>
+            </div>
+            <div class="novel-grid" id="novel-grid">
+                <span class="lists-loading">加载中...</span>
+            </div>
+        </section>
+    </main>
+
+    <!-- Create Novel Modal -->
+    <div id="create-modal" class="modal-overlay">
+        <div class="modal-backdrop"></div>
+        <div class="modal-container">
+            <button class="modal-close" onclick="closeCreateModal()" title="关闭">&times;</button>
+            <div class="modal-body" style="display:flex;align-items:center;justify-content:center;padding:24px">
+                <div class="novel-form">
+                    <h2>创建小说</h2>
+                    <div class="form-group">
+                        <label>小说标题</label>
+                        <input type="text" id="novel-title-input" placeholder="输入小说标题...">
+                    </div>
+                    <div class="form-group">
+                        <label>封面图片</label>
+                        <div class="cover-preview" id="cover-preview">
+                            <span class="cover-placeholder" id="cover-placeholder">选择封面后预览</span>
+                            <img id="cover-img" style="display:none" alt="">
+                            <span class="cover-clear" id="cover-clear" style="display:none" onclick="clearCover()">&times;</span>
+                        </div>
+                        <div class="cover-autocomplete">
+                            <input type="text" id="cover-input" placeholder="输入图片路径..." autocomplete="off" oninput="filterCoverOptions()" onfocus="filterCoverOptions()">
+                            <div class="cover-dropdown" id="cover-dropdown" style="display:none"></div>
+                        </div>
+                        <input type="text" id="cover-path" style="display:none">
+                    </div>
+                    <div class="form-actions">
+                        <button class="cancel-btn" onclick="closeCreateModal()">取消</button>
+                        <button class="submit-btn" onclick="createNovel()">创建</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Novel Detail Modal -->
+    <div id="detail-modal" class="modal-overlay">
+        <div class="modal-backdrop"></div>
+        <div class="modal-container">
+            <button class="modal-close" onclick="closeDetailModal()" title="关闭">&times;</button>
+            <div class="modal-body" style="display:flex;align-items:center;justify-content:center;padding:24px">
+                <div class="novel-detail" id="novel-detail-content"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="copy-toast"></div>
+
+    <script>
+    var _novels = [];
+
+    function loadNovels() {
+        fetch('/api/novels')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                _novels = data;
+                renderNovelGrid();
+            });
+    }
+
+    function renderNovelGrid() {
+        var grid = document.getElementById('novel-grid');
+        var count = document.getElementById('novel-count');
+        if (!grid) return;
+        if (_novels.length === 0) {
+            grid.innerHTML = '<div class="empty"><p>暂无小说</p><p>点击上方「创建小说」开始</p></div>';
+            if (count) count.textContent = '';
+            return;
+        }
+        if (count) count.textContent = '(' + _novels.length + ')';
+        var html = '';
+        _novels.forEach(function(n) {
+            var coverHtml = n.cover
+                ? '<img src="/thumbnail/' + n.cover + '" alt="' + n.title + '" onerror="this.remove()">'
+                : '<div class="novel-cover-placeholder">📖</div>';
+            html += '<div class="novel-card" onclick="openNovelDetail(\'' + n.id + '\')">' +
+                '<div class="novel-cover">' + coverHtml + '</div>' +
+                '<div class="novel-card-title">' + n.title + '</div>' +
+                '<div class="novel-card-info">' + n.chapter_count + ' 章</div>' +
+                '</div>';
+        });
+        grid.innerHTML = html;
+    }
+
+    // --- Create Novel ---
+    var _coverImages = [];
+    var _coverLoaded = false;
+
+    function showCreateNovel() {
+        document.getElementById('create-modal').classList.add('active');
+        document.body.style.overflow = 'hidden';
+        document.getElementById('novel-title-input').value = '';
+        document.getElementById('cover-input').value = '';
+        clearCover();
+        if (!_coverLoaded) loadCoverData();
+    }
+
+    function closeCreateModal() {
+        document.getElementById('create-modal').classList.remove('active');
+        document.body.style.overflow = '';
+        document.getElementById('cover-dropdown').style.display = 'none';
+    }
+
+    function loadCoverData() {
+        fetch('/api/images/all')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                _coverImages = data;
+                _coverLoaded = true;
+            });
+    }
+
+    function filterCoverOptions() {
+        var input = document.getElementById('cover-input');
+        var dropdown = document.getElementById('cover-dropdown');
+        var filter = input.value.toLowerCase();
+        var matches = _coverImages.filter(function(img) {
+            return img.path.toLowerCase().indexOf(filter) !== -1 || img.name.toLowerCase().indexOf(filter) !== -1;
+        });
+        if (matches.length === 0) {
+            dropdown.style.display = 'none';
+            return;
+        }
+        var html = '';
+        matches.slice(0, 20).forEach(function(img) {
+            html += '<div class="cover-option' + (img.path === document.getElementById('cover-path').value ? ' selected' : '') + '" onclick="selectCover(\'' + img.path.replace(/'/g, '') + '\', this)">' +
+                '<img src="/thumbnail/' + img.path + '" alt="" onerror="this.remove()">' +
+                '<span class="cover-option-path">' + img.path + '</span>' +
+                '</div>';
+        });
+        dropdown.innerHTML = html;
+        dropdown.style.display = 'block';
+    }
+
+    function selectCover(path, el) {
+        document.getElementById('cover-path').value = path;
+        document.getElementById('cover-input').value = path;
+        document.getElementById('cover-placeholder').style.display = 'none';
+        var img = document.getElementById('cover-img');
+        img.src = '/thumbnail/' + path;
+        img.style.display = 'block';
+        document.getElementById('cover-clear').style.display = '';
+        document.getElementById('cover-dropdown').style.display = 'none';
+        var prev = document.querySelector('.cover-option.selected');
+        if (prev) prev.classList.remove('selected');
+        if (el) el.classList.add('selected');
+    }
+
+    function clearCover() {
+        document.getElementById('cover-path').value = '';
+        document.getElementById('cover-input').value = '';
+        document.getElementById('cover-placeholder').style.display = '';
+        document.getElementById('cover-img').style.display = 'none';
+        document.getElementById('cover-clear').style.display = 'none';
+        document.getElementById('cover-dropdown').style.display = 'none';
+    }
+
+    // Close dropdown on click outside
+    document.addEventListener('click', function(e) {
+        var wrap = document.querySelector('.cover-autocomplete');
+        if (wrap && !wrap.contains(e.target)) {
+            document.getElementById('cover-dropdown').style.display = 'none';
+        }
+    });
+
+    function createNovel() {
+        var title = document.getElementById('novel-title-input').value.trim();
+        if (!title) { showToast('请输入小说标题'); return; }
+        var cover = document.getElementById('cover-path').value;
+        fetch('/api/novels', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({title: title, cover: cover})
+        }).then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (data.error) { showToast(data.error); return; }
+            closeCreateModal();
+            showToast('小说「' + data.title + '」已创建');
+            loadNovels();
+        });
+    }
+
+    // --- Novel Detail ---
+    function openNovelDetail(nid) {
+        fetch('/api/novels/' + nid)
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                renderNovelDetail(data);
+                document.getElementById('detail-modal').classList.add('active');
+                document.body.style.overflow = 'hidden';
+            });
+    }
+
+    function closeDetailModal() {
+        document.getElementById('detail-modal').classList.remove('active');
+        document.body.style.overflow = '';
+    }
+
+    function renderNovelDetail(novel) {
+        var container = document.getElementById('novel-detail-content');
+        var isCoverVideo = /\.(mp4|webm|mkv|avi|mov)$/i.test(novel.cover || '');
+        var coverHtml = novel.cover
+            ? (isCoverVideo
+                ? '<video src="/raw/' + novel.cover + '" autoplay muted loop playsinline style="max-width:200px;max-height:280px;border-radius:6px"></video>'
+                : '<img src="/raw/' + novel.cover + '" alt="' + novel.title + '" style="max-width:200px;border-radius:6px">')
+            : '<div class="novel-cover-placeholder" style="width:200px;height:200px;font-size:4rem">📖</div>';
+        var chapsHtml = '';
+        if (novel.chapters && novel.chapters.length > 0) {
+            novel.chapters.forEach(function(ch) {
+                chapsHtml += '<a href="/novels/' + novel.id + '/chapters/' + ch.id + '" class="chapter-item">' +
+                    '<span class="chapter-title">' + ch.title + '</span>' +
+                    '<span class="chapter-actions">' +
+                        '<button class="chapter-edit-btn" onclick="event.preventDefault();event.stopPropagation();editChapter(\'' + novel.id + '\',\'' + ch.id + '\')" title="编辑">✏️</button>' +
+                        '<button class="chapter-del-btn" onclick="event.preventDefault();event.stopPropagation();deleteChapter(\'' + novel.id + '\',\'' + ch.id + '\')" title="删除">🗑</button>' +
+                    '</span>' +
+                '</a>';
+            });
+        } else {
+            chapsHtml = '<div class="empty" style="padding:20px"><p>暂无章节</p></div>';
+        }
+        container.innerHTML =
+            '<div class="novel-detail-layout">' +
+                '<div class="novel-detail-cover">' + coverHtml + '</div>' +
+                '<div class="novel-detail-info">' +
+                    '<h2>' + novel.title + '</h2>' +
+                    '<div class="novel-detail-actions">' +
+                        '<button class="submit-btn" onclick="addChapter(\'' + novel.id + '\')">+ 添加章节</button>' +
+                        '<button class="cancel-btn" onclick="deleteNovel(\'' + novel.id + '\')">🗑 删除小说</button>' +
+                    '</div>' +
+                    '<h3>章节列表 (' + (novel.chapters ? novel.chapters.length : 0) + ')</h3>' +
+                    '<div class="chapter-list">' + chapsHtml + '</div>' +
+                '</div>' +
+            '</div>';
+    }
+
+    function addChapter(nid) {
+        location.href = '/novels/' + nid + '/edit-chapter';
+    }
+
+    function editChapter(nid, cid) {
+        location.href = '/novels/' + nid + '/edit-chapter/' + cid;
+    }
+
+    function deleteChapter(nid, cid) {
+        if (!confirm('确定删除该章节吗？')) return;
+        fetch('/api/novels/' + nid + '/chapters/' + cid, { method: 'DELETE' })
+            .then(function() {
+                showToast('章节已删除');
+                openNovelDetail(nid);
+            });
+    }
+
+    function deleteNovel(nid) {
+        if (!confirm('确定删除该小说及其所有章节吗？此操作不可撤销！')) return;
+        fetch('/api/novels/' + nid, { method: 'DELETE' })
+            .then(function() {
+                closeDetailModal();
+                showToast('小说已删除');
+                loadNovels();
+            });
+    }
+
+    // --- Modal close events ---
+    function overlayClick(modalId, closeFn) {
+        return function(e) {
+            // Close only if clicked directly on the backdrop area, not on modal content
+            var target = e.target;
+            while (target) {
+                if (target.classList && (target.classList.contains('novel-form') || target.classList.contains('novel-detail') || target.classList.contains('cover-dropdown') || target.classList.contains('modal-close'))) return;
+                target = target.parentElement;
+            }
+            closeFn();
+        };
+    }
+
+    function initModalEvents() {
+        var cm = document.getElementById('create-modal');
+        if (cm) {
+            cm.querySelector('.modal-backdrop').addEventListener('click', closeCreateModal);
+            cm.querySelector('.modal-container').addEventListener('click', overlayClick('create-modal', closeCreateModal));
+        }
+        var dm = document.getElementById('detail-modal');
+        if (dm) {
+            dm.querySelector('.modal-backdrop').addEventListener('click', closeDetailModal);
+            dm.querySelector('.modal-container').addEventListener('click', overlayClick('detail-modal', closeDetailModal));
+        }
+    }
+    initModalEvents();
+
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            var cm = document.getElementById('create-modal');
+            if (cm && cm.classList.contains('active')) closeCreateModal();
+            var dm = document.getElementById('detail-modal');
+            if (dm && dm.classList.contains('active')) closeDetailModal();
+        }
+    });
+
+    function showToast(msg) {
+        var t = document.getElementById('copy-toast');
+        if (!t) { t = document.createElement('div'); t.id = 'copy-toast'; document.body.appendChild(t); }
+        t.textContent = msg;
+        t.classList.add('show');
+        clearTimeout(t._timer);
+        t._timer = setTimeout(function() { t.classList.remove('show'); }, 1500);
+    }
+
+    loadNovels();
+    </script>
+</body>
+</html>

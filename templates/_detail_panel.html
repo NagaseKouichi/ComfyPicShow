@@ -33,6 +33,9 @@
             {% if is_video and image.duration_display %}
             <tr><td>时长</td><td>{{ image.duration_display }}</td></tr>
             {% endif %}
+            {% if is_video and image.fps_display and image.fps_display != '?' %}
+            <tr><td>帧率</td><td>{{ image.fps_display }} fps</td></tr>
+            {% endif %}
             <tr><td>格式</td><td>{{ image.format }}</td></tr>
             <tr><td>文件大小</td><td>{{ image.size_display }}</td></tr>
             <tr><td>修改时间</td><td>{{ image.modified }}</td></tr>

@@ -199,6 +199,23 @@ def get_video_info(video_path):
         height = video_stream.get("height", 0) if video_stream else 0
         has_audio = audio_stream is not None
 
+        # Extract FPS from r_frame_rate (e.g. "30000/1001" -> 29.97)
+        fps_display = "?"
+        if video_stream:
+            fps_str = video_stream.get("r_frame_rate") or video_stream.get("avg_frame_rate", "")
+            if "/" in fps_str:
+                parts = fps_str.split("/")
+                try:
+                    fps = float(parts[0]) / float(parts[1])
+                    fps_display = f"{fps:.2f}"
+                except (ValueError, ZeroDivisionError):
+                    pass
+            elif fps_str:
+                try:
+                    fps_display = f"{float(fps_str):.2f}"
+                except ValueError:
+                    pass
+
         minutes = int(duration // 60)
         seconds = int(duration % 60)
         duration_display = f"{minutes}:{seconds:02d}"
@@ -211,9 +228,10 @@ def get_video_info(video_path):
             "has_audio": has_audio,
             "size_bytes": size_bytes,
             "size_display": format_file_size(size_bytes),
+            "fps_display": fps_display,
         }
     except Exception:
-        return {"width": 0, "height": 0, "duration": 0, "duration_display": "?", "has_audio": False, "size_bytes": 0, "size_display": "?"}
+        return {"width": 0, "height": 0, "duration": 0, "duration_display": "?", "has_audio": False, "size_bytes": 0, "size_display": "?", "fps_display": "?"}
 
 
 def _is_comfyui_node_format(prompt_data):
@@ -1480,6 +1498,222 @@ def scan_all():
             count += 1
 
     return jsonify({"scanned": count})
+
+
+# --- Novels ---
+
+NOVELS_FILE = os.path.join(BASE_DIR, "cache", "novels.json")
+
+
+def load_novels():
+    if not os.path.exists(NOVELS_FILE):
+        return {}
+    try:
+        with open(NOVELS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_novels(data):
+    try:
+        with open(NOVELS_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+    except Exception:
+        pass
+
+
+@app.route("/novels")
+def novels_page():
+    return render_template("novels.html")
+
+
+@app.route("/api/novels", methods=["GET"])
+def api_get_novels():
+    data = load_novels()
+    result = []
+    for nid, n in data.items():
+        result.append({
+            "id": nid,
+            "title": n.get("title", ""),
+            "cover": n.get("cover", ""),
+            "chapter_count": len(n.get("chapters", [])),
+            "created_at": n.get("created_at", ""),
+        })
+    return jsonify(result)
+
+
+@app.route("/api/novels", methods=["POST"])
+def api_create_novel():
+    body = request.get_json(silent=True) or {}
+    title = body.get("title", "").strip()
+    cover = body.get("cover", "").strip()
+    if not title:
+        return jsonify({"error": "Title required"}), 400
+    data = load_novels()
+    existing = [int(k) for k in data.keys() if k.isdigit()]
+    nid = str(max(existing) + 1 if existing else 1)
+    data[nid] = {
+        "id": nid,
+        "title": title,
+        "cover": cover,
+        "created_at": datetime.now().isoformat(),
+        "chapters": [],
+    }
+    save_novels(data)
+    return jsonify({"id": nid, "title": title, "cover": cover, "chapter_count": 0})
+
+
+@app.route("/api/novels/<nid>", methods=["GET"])
+def api_get_novel(nid):
+    data = load_novels()
+    novel = data.get(nid)
+    if not novel:
+        return jsonify({"error": "Not found"}), 404
+    return jsonify(novel)
+
+
+@app.route("/api/novels/<nid>", methods=["DELETE"])
+def api_delete_novel(nid):
+    data = load_novels()
+    if nid in data:
+        del data[nid]
+        save_novels(data)
+    return jsonify({"deleted": True})
+
+
+@app.route("/api/novels/<nid>/chapters", methods=["POST"])
+def api_add_chapter(nid):
+    body = request.get_json(silent=True) or {}
+    title = body.get("title", "").strip()
+    content = body.get("content", "").strip()
+    if not title:
+        return jsonify({"error": "Title required"}), 400
+    data = load_novels()
+    novel = data.get(nid)
+    if not novel:
+        return jsonify({"error": "Novel not found"}), 404
+    chapters = novel.get("chapters", [])
+    update_id = body.get("chapter_id", "").strip() if body.get("chapter_id") else ""
+    if update_id:
+        # Update existing chapter
+        cid = update_id
+        for i, ch in enumerate(chapters):
+            if ch["id"] == update_id:
+                chapters[i] = {"id": cid, "title": title, "content": content, "created_at": datetime.now().isoformat()}
+                break
+    else:
+        existing = [int(c["id"]) for c in chapters] if chapters else []
+        cid = str(max(existing) + 1 if existing else 1)
+        chapters.append({"id": cid, "title": title, "content": content, "created_at": datetime.now().isoformat()})
+    novel["chapters"] = chapters
+    save_novels(data)
+    return jsonify({"id": cid, "title": title})
+
+
+@app.route("/api/novels/<nid>/chapters/<cid>", methods=["GET"])
+def api_get_chapter(nid, cid):
+    data = load_novels()
+    novel = data.get(nid)
+    if not novel:
+        return jsonify({"error": "Not found"}), 404
+    chapter = None
+    next_id = None
+    for i, ch in enumerate(novel.get("chapters", [])):
+        if ch["id"] == cid:
+            chapter = ch
+            if i < len(novel["chapters"]) - 1:
+                next_id = novel["chapters"][i + 1]["id"]
+            break
+    if not chapter:
+        return jsonify({"error": "Not found"}), 404
+    return jsonify({"title": chapter["title"], "content": chapter["content"], "next_id": next_id})
+
+
+@app.route("/api/novels/<nid>/chapters/<cid>", methods=["DELETE"])
+def api_delete_chapter(nid, cid):
+    data = load_novels()
+    novel = data.get(nid)
+    if not novel:
+        return jsonify({"error": "Not found"}), 404
+    novel["chapters"] = [c for c in novel.get("chapters", []) if c["id"] != cid]
+    save_novels(data)
+    return jsonify({"deleted": True})
+
+
+@app.route("/novels/<nid>/chapters/<cid>")
+def chapter_read_page(nid, cid):
+    data = load_novels()
+    novel = data.get(nid)
+    if not novel:
+        abort(404)
+    chapter = None
+    for ch in novel.get("chapters", []):
+        if ch["id"] == cid:
+            chapter = ch
+            break
+    if not chapter:
+        abort(404)
+    prev_id = None
+    next_id = None
+    for i, ch in enumerate(novel["chapters"]):
+        if ch["id"] == cid:
+            if i > 0:
+                prev_id = novel["chapters"][i - 1]["id"]
+            if i < len(novel["chapters"]) - 1:
+                next_id = novel["chapters"][i + 1]["id"]
+            break
+    return render_template("chapter.html",
+                          novel=novel, chapter=chapter,
+                          nid=nid, cid=cid,
+                          prev_id=prev_id, next_id=next_id)
+
+
+@app.route("/novels/<nid>/edit-chapter")
+@app.route("/novels/<nid>/edit-chapter/<cid>")
+def chapter_edit_page(nid, cid=None):
+    data = load_novels()
+    novel = data.get(nid)
+    if not novel:
+        abort(404)
+    chapter = None
+    if cid:
+        for ch in novel.get("chapters", []):
+            if ch["id"] == cid:
+                chapter = ch
+                break
+    return render_template("chapter_edit.html", novel=novel, chapter=chapter, nid=nid, cid=cid or "")
+
+
+@app.route("/api/images/all")
+def api_all_images():
+    """Return all image/video paths for cover selection."""
+    images = []
+    if os.path.exists(FILE_INDEX_FILE):
+        file_index = _load_file_index()
+        for cache_key, entry in file_index.items():
+            for f in entry.get("files", []):
+                thumb_path = get_thumbnail_path(os.path.join(IMAGE_ROOT_DIR, f["path"]))
+                images.append({
+                    "name": f["name"],
+                    "path": f["path"],
+                    "has_thumbnail": os.path.exists(thumb_path),
+                    "is_video": f.get("is_video", False),
+                })
+    if not images:
+        # Fallback: scan images directory
+        for root, dirs, files in os.walk(IMAGE_ROOT_DIR):
+            for f in sorted(files):
+                if is_media_file(f):
+                    rel_path = os.path.relpath(os.path.join(root, f), IMAGE_ROOT_DIR)
+                    thumb_path = get_thumbnail_path(os.path.join(root, f))
+                    images.append({
+                        "name": f,
+                        "path": rel_path,
+                        "has_thumbnail": os.path.exists(thumb_path),
+                        "is_video": is_video_file(f),
+                    })
+    return jsonify(images)
 
 
 if __name__ == "__main__":
