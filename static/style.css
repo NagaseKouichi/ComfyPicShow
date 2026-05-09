@@ -716,7 +716,8 @@ details summary:hover { color: var(--link-hover); }
   font-weight: 500;
 }
 
-#novel-title-input {
+#novel-title-input,
+#edit-title-input {
   width: 100%;
   padding: 8px 12px;
   border: 1px solid var(--border);
@@ -728,7 +729,8 @@ details summary:hover { color: var(--link-hover); }
   font-family: var(--font);
   transition: border-color .15s;
 }
-#novel-title-input:focus { border-color: var(--accent-dim); }
+#novel-title-input:focus,
+#edit-title-input:focus { border-color: var(--accent-dim); }
 
 /* Cover preview */
 .cover-preview {
@@ -777,7 +779,8 @@ details summary:hover { color: var(--link-hover); }
 .cover-autocomplete {
   position: relative;
 }
-#cover-input {
+#cover-input,
+#edit-cover-input {
   width: 100%;
   padding: 8px 12px;
   border: 1px solid var(--border);
@@ -789,7 +792,8 @@ details summary:hover { color: var(--link-hover); }
   font-family: var(--font-mono);
   transition: border-color .15s;
 }
-#cover-input:focus { border-color: var(--accent-dim); }
+#cover-input:focus,
+#edit-cover-input:focus { border-color: var(--accent-dim); }
 
 .cover-dropdown {
   position: absolute;

@@ -78,10 +78,46 @@
         </div>
     </div>
 
+    <!-- Edit Novel Modal -->
+    <div id="edit-modal" class="modal-overlay">
+        <div class="modal-backdrop"></div>
+        <div class="modal-container">
+            <button class="modal-close" onclick="closeEditModal()" title="关闭">&times;</button>
+            <div class="modal-body" style="display:flex;align-items:center;justify-content:center;padding:24px">
+                <div class="novel-form">
+                    <h2>编辑小说</h2>
+                    <div class="form-group">
+                        <label>小说标题</label>
+                        <input type="text" id="edit-title-input" placeholder="输入小说标题...">
+                    </div>
+                    <div class="form-group">
+                        <label>封面图片</label>
+                        <div class="cover-preview" id="edit-cover-preview">
+                            <span class="cover-placeholder" id="edit-cover-placeholder">选择封面后预览</span>
+                            <img id="edit-cover-img" style="display:none" alt="">
+                            <video id="edit-cover-video" style="display:none" muted loop playsinline></video>
+                            <span class="cover-clear" id="edit-cover-clear" style="display:none" onclick="clearEditCover()">&times;</span>
+                        </div>
+                        <div class="cover-autocomplete">
+                            <input type="text" id="edit-cover-input" placeholder="输入图片路径..." autocomplete="off" oninput="filterEditCoverOptions()" onfocus="filterEditCoverOptions()">
+                            <div class="cover-dropdown" id="edit-cover-dropdown" style="display:none"></div>
+                        </div>
+                        <input type="text" id="edit-cover-path" style="display:none">
+                    </div>
+                    <div class="form-actions">
+                        <button class="cancel-btn" onclick="closeEditModal()">取消</button>
+                        <button class="submit-btn" onclick="saveNovelEdit()">保存</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div id="copy-toast"></div>
 
     <script>
     var _novels = [];
+    var _editingNid = '';
 
     function loadNovels() {
         fetch('/api/novels')
@@ -214,6 +250,109 @@
         });
     }
 
+    // --- Edit Novel ---
+    function showEditNovel(nid) {
+        _editingNid = nid;
+        var novel = null;
+        for (var i = 0; i < _novels.length; i++) {
+            if (_novels[i].id === nid) { novel = _novels[i]; break; }
+        }
+        if (!novel) return;
+        closeDetailModal();
+        // Populate form
+        document.getElementById('edit-title-input').value = novel.title;
+        document.getElementById('edit-cover-path').value = novel.cover || '';
+        document.getElementById('edit-cover-input').value = novel.cover || '';
+        clearEditCover();
+        if (novel.cover) showEditCoverPreview(novel.cover);
+        document.getElementById('edit-modal').classList.add('active');
+        document.body.style.overflow = 'hidden';
+        if (!_coverLoaded) loadCoverData();
+    }
+
+    function closeEditModal() {
+        document.getElementById('edit-modal').classList.remove('active');
+        document.body.style.overflow = '';
+        document.getElementById('edit-cover-dropdown').style.display = 'none';
+    }
+
+    function filterEditCoverOptions() {
+        var input = document.getElementById('edit-cover-input');
+        var dropdown = document.getElementById('edit-cover-dropdown');
+        var filter = input.value.toLowerCase();
+        var matches = _coverImages.filter(function(img) {
+            return img.path.toLowerCase().indexOf(filter) !== -1 || img.name.toLowerCase().indexOf(filter) !== -1;
+        });
+        if (matches.length === 0) {
+            dropdown.style.display = 'none';
+            return;
+        }
+        var currentPath = document.getElementById('edit-cover-path').value;
+        var html = '';
+        matches.slice(0, 20).forEach(function(img) {
+            var badge = img.is_video ? ' <span style="font-size:.65rem;color:var(--accent-dim)">▶</span>' : '';
+            html += '<div class="cover-option' + (img.path === currentPath ? ' selected' : '') + '" onclick="selectEditCover(\'' + img.path.replace(/'/g, '') + '\', this)">' +
+                '<img src="/thumbnail/' + img.path + '" alt="" onerror="this.remove()">' +
+                '<span class="cover-option-path">' + img.path + badge + '</span>' +
+                '</div>';
+        });
+        dropdown.innerHTML = html;
+        dropdown.style.display = 'block';
+    }
+
+    function selectEditCover(path, el) {
+        document.getElementById('edit-cover-path').value = path;
+        document.getElementById('edit-cover-input').value = path;
+        showEditCoverPreview(path);
+        document.getElementById('edit-cover-dropdown').style.display = 'none';
+    }
+
+    function showEditCoverPreview(path) {
+        var isVideo = /\.(mp4|webm|mkv|avi|mov)$/i.test(path);
+        document.getElementById('edit-cover-placeholder').style.display = 'none';
+        if (isVideo) {
+            document.getElementById('edit-cover-img').style.display = 'none';
+            var vid = document.getElementById('edit-cover-video');
+            vid.style.display = 'block';
+            vid.src = '/raw/' + path;
+            vid.load();
+        } else {
+            document.getElementById('edit-cover-video').style.display = 'none';
+            document.getElementById('edit-cover-video').removeAttribute('src');
+            var img = document.getElementById('edit-cover-img');
+            img.style.display = 'block';
+            img.src = '/thumbnail/' + path;
+        }
+        document.getElementById('edit-cover-clear').style.display = '';
+    }
+
+    function clearEditCover() {
+        document.getElementById('edit-cover-path').value = '';
+        document.getElementById('edit-cover-input').value = '';
+        document.getElementById('edit-cover-placeholder').style.display = '';
+        document.getElementById('edit-cover-img').style.display = 'none';
+        document.getElementById('edit-cover-video').style.display = 'none';
+        document.getElementById('edit-cover-video').removeAttribute('src');
+        document.getElementById('edit-cover-clear').style.display = 'none';
+    }
+
+    function saveNovelEdit() {
+        var title = document.getElementById('edit-title-input').value.trim();
+        if (!title) { showToast('请输入小说标题'); return; }
+        var cover = document.getElementById('edit-cover-path').value;
+        fetch('/api/novels/' + _editingNid, {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({title: title, cover: cover})
+        }).then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (data.error) { showToast(data.error); return; }
+            closeEditModal();
+            showToast('小说已更新');
+            loadNovels();
+        });
+    }
+
     // --- Novel Detail ---
     function openNovelDetail(nid) {
         fetch('/api/novels/' + nid)
@@ -259,6 +398,7 @@
                     '<h2>' + novel.title + '</h2>' +
                     '<div class="novel-detail-actions">' +
                         '<button class="submit-btn" onclick="addChapter(\'' + novel.id + '\')">+ 添加章节</button>' +
+                        '<button class="submit-btn" onclick="showEditNovel(\'' + novel.id + '\')" style="background:var(--link)">✏️ 编辑</button>' +
                         '<button class="cancel-btn" onclick="deleteNovel(\'' + novel.id + '\')">🗑 删除小说</button>' +
                     '</div>' +
                     '<h3>章节列表 (' + (novel.chapters ? novel.chapters.length : 0) + ')</h3>' +
@@ -318,15 +458,19 @@
             dm.querySelector('.modal-backdrop').addEventListener('click', closeDetailModal);
             dm.querySelector('.modal-container').addEventListener('click', overlayClick('detail-modal', closeDetailModal));
         }
+        var em = document.getElementById('edit-modal');
+        if (em) {
+            em.querySelector('.modal-backdrop').addEventListener('click', closeEditModal);
+            em.querySelector('.modal-container').addEventListener('click', overlayClick('edit-modal', closeEditModal));
+        }
     }
     initModalEvents();
 
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape') {
-            var cm = document.getElementById('create-modal');
-            if (cm && cm.classList.contains('active')) closeCreateModal();
-            var dm = document.getElementById('detail-modal');
-            if (dm && dm.classList.contains('active')) closeDetailModal();
+            if (document.getElementById('create-modal').classList.contains('active')) closeCreateModal();
+            if (document.getElementById('detail-modal').classList.contains('active')) closeDetailModal();
+            if (document.getElementById('edit-modal').classList.contains('active')) closeEditModal();
         }
     });
 

@@ -1573,6 +1573,23 @@ def api_get_novel(nid):
     return jsonify(novel)
 
 
+@app.route("/api/novels/<nid>", methods=["PUT"])
+def api_update_novel(nid):
+    body = request.get_json(silent=True) or {}
+    title = body.get("title", "").strip()
+    cover = body.get("cover", "").strip()
+    if not title:
+        return jsonify({"error": "Title required"}), 400
+    data = load_novels()
+    novel = data.get(nid)
+    if not novel:
+        return jsonify({"error": "Not found"}), 404
+    novel["title"] = title
+    novel["cover"] = cover
+    save_novels(data)
+    return jsonify({"id": nid, "title": title, "cover": cover})
+
+
 @app.route("/api/novels/<nid>", methods=["DELETE"])
 def api_delete_novel(nid):
     data = load_novels()
