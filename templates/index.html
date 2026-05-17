@@ -213,10 +213,16 @@
             if (video.paused) { video.play(); } else { video.pause(); }
         });
 
+        // Apply saved mute preference
+        var savedMuted = localStorage.getItem('videoMuted');
+        if (savedMuted === '1') video.muted = true;
+        if (savedMuted === '0') video.muted = false;
+
         if (btnMute) {
             btnMute.onclick = function(e) {
                 e.stopPropagation();
                 video.muted = !video.muted;
+                localStorage.setItem('videoMuted', video.muted ? '1' : '0');
             };
         }
 

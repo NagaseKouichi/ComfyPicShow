@@ -152,7 +152,10 @@
             else { btnMute.textContent = '🔊'; btnMute.title = '静音'; }
         }
         video.addEventListener('click', function() { if (video.paused) video.play(); else video.pause(); });
-        if (btnMute) btnMute.onclick = function(e) { e.stopPropagation(); video.muted = !video.muted; };
+        var savedMuted = localStorage.getItem('videoMuted');
+        if (savedMuted === '1') video.muted = true;
+        if (savedMuted === '0') video.muted = false;
+        if (btnMute) btnMute.onclick = function(e) { e.stopPropagation(); video.muted = !video.muted; localStorage.setItem('videoMuted', video.muted ? '1' : '0'); };
         video.addEventListener('play', updateOverlay);
         video.addEventListener('pause', updateOverlay);
         video.addEventListener('volumechange', updateMuteBtn);
